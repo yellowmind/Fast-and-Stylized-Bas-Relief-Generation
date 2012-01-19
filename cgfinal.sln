@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 9.00
 # Visual Studio 2005
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "cghw3", "cghw3.vcproj", "{A3202C66-DAC6-4CF1-8A69-E328BD116855}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "cgfinal", "cgfinal.vcproj", "{A3202C66-DAC6-4CF1-8A69-E328BD116855}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
