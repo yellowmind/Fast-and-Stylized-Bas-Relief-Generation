@@ -69,6 +69,7 @@ GLdouble outputHeight = 0.1	;//0.075;
 GLfloat threshold = 0.02;
 vector< vector<GLfloat> > heightList, laplaceList;
 const int pyrLevel = 4;
+vector<bool> bgMask, outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
 //vector<GLfloat> height;
@@ -723,8 +724,40 @@ void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, int aperture=7)
 			reliefSub( sub2, upSub, subLaplace2);*/
 		}
 	}
+}
 
+void bgFilter(vector<float> &src, vector<bool> mask)
+{
+	int width = sqrt( (float) src.size() );
+	int height = sqrt( (float) src.size() );
+	
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			if( mask.at(i*height + j) &&  src.at(i*height + j) != 0 )
+			{
+				src.at(i*height + j) = 0;
+			}
+		}
+	}
+}
 
+void extractOutline(vector<bool> src, vector<bool> dst)
+{
+	int width = sqrt( (float) src.size() );
+	int height = sqrt( (float) src.size() );
+	
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			if( src.at(i*height + j) )
+			{
+
+			}
+		}
+	}
 }
 
 double compress(double x, double alpha)
@@ -857,6 +890,7 @@ void softPath(void)
 			{
 				heightPyr[i].clear();
 			}
+			bgMask.clear();
 			
 			for(int i=boundary; i<winWidth/3 - boundary; i++)
 			{
@@ -874,11 +908,10 @@ void softPath(void)
 						minDepth = depth;
 					}
 					heightPyr[0].push_back(depth);
-					
+					bgMask.push_back(0);
 				}
 			}
-
-			
+	
 
 			int enhance = 50;
 			double maxDepthPrime = compress(maxDepth*enhance, 5, 5);
@@ -889,6 +922,7 @@ void softPath(void)
 				if ( heightPyr[0].at(i) == 1 )	//infinite point
 				{
 					heightPyr[0].at(i) = 0;
+					bgMask.at(i) = 1;
 				}
 				else
 				{
@@ -902,6 +936,9 @@ void softPath(void)
 					heightPyr[0].at(i) /= (maxDepth - minDepth);	//normalize to [0,1]
 				}
 			}
+
+			//extractOutlineo(vector<bool> src, vector<bool> dst);
+
 			heightList.clear();
 			vector<GLfloat> height2, upHeight, laplace;
 			heightList.push_back(heightPyr[0]);
@@ -1282,6 +1319,8 @@ void reliefHistogram(void)
 				reliefAdd( *compressedH, laplaceList.at(i) );*/
 			}
 			Image2Relief(img, compressedH);
+
+			bgFilter(compressedH, bgMask);
 			//upHeight.clear();
 		/*	height2.clear();
 			upSample(heightList.at(1), height2);
