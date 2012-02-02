@@ -63,12 +63,12 @@ GLdouble MODELSCALE = 1.0;
 GLdouble LIGHTP = 15;
 
 bool relief=true,relief2=true;
-GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =2.5;
+GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =1;
 GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
 GLdouble outputHeight = 0.1	;//0.075;
 GLfloat threshold = 0.02;
 vector< vector<GLfloat> > heightList, laplaceList;
-const int pyrLevel = 4;
+const int pyrLevel = 5;
 vector<bool> bgMask, outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
@@ -605,6 +605,14 @@ void reliefAdd(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat> &dst)
 	}
 }
 
+void remapping(GLfloat g, GLfloat threshold, vector<GLfloat> &dst)
+{
+	for(int k=0; k < dst.size(); k++)
+	{
+		dst[k] = minf( maxf( dst.at(k), g - threshold), g + threshold );
+	}
+}
+
 void updateLaplace(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat*> dst)
 {
 	int width = sqrt( (float) src2.size() );
@@ -684,10 +692,11 @@ void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, int aperture=7)
 			}*/
 			//Remapping
 			float g = src.at( i*height + j );
-			for(int k=0; k < sub.size(); k++)
+			remapping(g, threshold, sub);
+			/*for(int k=0; k < sub.size(); k++)
 			{			
 				sub[k] = minf( maxf( sub.at(k), g - threshold), g + threshold );
-			}
+			}*/
 
 			vector<GLfloat>  sub2, upSub;
 			/*IplImage *img0, *img1, *imgUp;
@@ -845,7 +854,7 @@ void softPath(void)
 
 
 	//view transform
-	glViewport(winWidth/3, 0, winWidth/3, winHeight);
+	glViewport(winWidth/3 + boundary, 0 + boundary, winWidth/3 - 2*boundary, winHeight - 2*boundary);
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -986,14 +995,16 @@ void softPath(void)
 		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
 		glColor3f(0.6, 0.6, 0.6);
+
+		glTranslated(-0.2, 0, 0);
 		
 		glRotatef(reliefAngleX, 1, 0, 0);
 		glRotatef(reliefAngleY, 0, 1, 0);
 		glRotatef(reliefAngleZ, 0, 0, 1);
 
-		glTranslated(-1.8, -1.9, 0.4);
+		glScalef(0.01*scale,0.01*scale,outputHeight);
 
-		glScalef(0.004*scale,0.004*scale,outputHeight);
+		glTranslated(-2/0.01, -2/0.01, 0.4);
 		
 			for(int i=0; i < heightPyr[0].size() / (winHeight - boundary*2) - 1; i++)
 			{			
@@ -1056,7 +1067,7 @@ void softPath(void)
 	glPopMatrix();
 
 	glPushMatrix();
-		glTranslated(0, 2, 0);
+		//glTranslated(0, 2, 0);
 		glMultMatrixd(TRACKM);
 
 		
@@ -1143,7 +1154,7 @@ void reliefHistogram(void)
 
 
 	//view transform
-	glViewport(winWidth*2/3, 0, winWidth*2/3, winHeight);
+	glViewport(winWidth*2/3 + boundary, 0 + boundary, winWidth*2/3 - 2*boundary, winHeight - 2*boundary);
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -1308,9 +1319,10 @@ void reliefHistogram(void)
 				int width = imgPyr[i]->width;
 				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
 				img2 = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				cvSetZero(img2);
 				imgLa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 
-				cvPyrUp(img, img2);
+				cvPyrUp(img, img2);	//upsample the smallest laplace
 				Relief2Image(laplaceList.at(i-1), imgLa);
 
 				img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
@@ -1338,14 +1350,18 @@ void reliefHistogram(void)
 		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
 		glColor3f(0.6, 0.6, 0.6);
+
+		glTranslated(-2.3, 0, 0);
 		
 		glRotatef(reliefAngleX, 1, 0, 0);
 		glRotatef(reliefAngleY, 0, 1, 0);
 		glRotatef(reliefAngleZ, 0, 0, 1);
 
-		glTranslated(-3.8, -1.9, 0.4);
+		glScalef(0.01*scale,0.01*scale,outputHeight);
 
-		glScalef(0.004*scale,0.004*scale,outputHeight);
+		glTranslated(-2/0.01, -2/0.01, 0.4);
+
+		
 		
 			for(int i=0; i <heightPyr.at(0).size() / (winHeight - boundary*2) - 1; i++)
 			{			
@@ -1408,7 +1424,7 @@ void reliefHistogram(void)
 	glPopMatrix();
 
 	glPushMatrix();
-		glTranslated(0, 2, 0);
+		//glTranslated(0, 2, 0);
 		glMultMatrixd(TRACKM);
 
 		
@@ -1700,6 +1716,32 @@ void update(int i)
 	glutTimerFunc(33, update, ++i);
 }
 
+void setZeroAxis()
+{
+	axis[0] = 0;
+	axis[1] = 0;
+	axis[2] = 0;
+}
+
+void initTM()
+{
+	TRACKM[0] = 1;
+	TRACKM[1] = 0;
+	TRACKM[2] = 0;
+	TRACKM[3] = 0;
+	TRACKM[4] = 0;
+	TRACKM[5] = 1;
+	TRACKM[6] = 0;
+	TRACKM[7] = 0;
+	TRACKM[8] = 0;
+	TRACKM[9] = 0;
+	TRACKM[10] = 1;
+	TRACKM[11] = 0;
+	TRACKM[12] = 0;
+	TRACKM[13] = 0;
+	TRACKM[14] = 0;
+	TRACKM[15] = 1;
+}
 void myKeys(unsigned char key, int x, int y)
 {
 	switch(key)
@@ -1741,15 +1783,19 @@ void myKeys(unsigned char key, int x, int y)
 			break;
         case '4':  
 			reliefAngleY--;
+			setZeroAxis();
 			break;
         case '6':  
 			reliefAngleY++;
+			setZeroAxis();
 			break;
 		case '8':  
 			 reliefAngleX--;
+			 setZeroAxis();
 			break;
 		case '2':  
 			reliefAngleX++;
+			setZeroAxis();
 			break;
 		case '+':  
 			scale += 0.5; 
@@ -1761,11 +1807,14 @@ void myKeys(unsigned char key, int x, int y)
 		//Enter
 		case 13:  
 			relief = true;
-			relief2 = true; 
+			relief2 = true;
+			setZeroAxis();
+			initTM();
 			break;
 		// Delete
 		case 127 :
 			reliefAngleZ++;
+			setZeroAxis();
 			break;
 	}
 	glutPostRedisplay();
@@ -1777,12 +1826,15 @@ void SpecialKeys(int key, int x, int y)
 	{
 		case GLUT_KEY_LEFT:
 			angleY--;
+			setZeroAxis();
 			break;
 		case GLUT_KEY_UP:
 			angleX--;
+			setZeroAxis();
 			break;
 		case GLUT_KEY_PAGE_UP:
 			angleZ--;
+			setZeroAxis();
 			break;
 		case GLUT_KEY_RIGHT:
 			angleY++;
@@ -1792,9 +1844,11 @@ void SpecialKeys(int key, int x, int y)
 			break;
 		case GLUT_KEY_PAGE_DOWN:
 			angleZ++;
+			setZeroAxis();
 			break;
 		case GLUT_KEY_INSERT:
 			reliefAngleZ--;
+			setZeroAxis();
 			break;
 	}
 }
@@ -1803,12 +1857,13 @@ int main(int argc, char **argv)
 {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
-    glutInitWindowSize(1200, 400);
+	int windowHeight = 440, horizontalSplit = 3;
+    glutInitWindowSize(windowHeight*horizontalSplit, windowHeight);
     glutCreateWindow("Digital Bas-Relief from 3D Scenes");
 
     glutReshapeFunc(myReshape);
 
-	vertCount = ( 400 - boundary*2 ) * ( 400 - boundary*2 );
+	vertCount = ( windowHeight - boundary*2 ) * ( windowHeight - boundary*2 );
 	pThreadRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3);
 	pThreadNormal = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3 *2);
 	pThreadEqualizeRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3);
