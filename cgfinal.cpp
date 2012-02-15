@@ -1292,13 +1292,27 @@ void reliefHistogram(void)
 				laplaceList.push_back(laplace[i]);
 			}
 			
+			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
+			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
+			for(int i=0; i < width; i++)
+			{
+				for(int j=0; j < height; j++)
+				{
+					int adress = i*height + j;
+					if( heightPyr[pyrLevel - 1][adress] > threshold )
+					{
+						heightPyr[pyrLevel - 1][adress] = 0;
+					}
+				}
+			}
+
 			//collapse the pyramid
 			vector<GLfloat> compressedH;
 			/*for(int i=0;i < height[pyrLevel - 1].size(); i++)
 			{
 				compressedH->push_back( height[pyrLevel - 1].at(i) );
 			}*/
-			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
+			
 			img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 			imgLa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 
