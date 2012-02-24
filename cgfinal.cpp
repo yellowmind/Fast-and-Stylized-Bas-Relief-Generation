@@ -68,6 +68,7 @@ GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
 GLdouble outputHeight = 0.1	;//0.075;
 GLfloat threshold = 0.02;
 vector< vector<GLfloat> > heightList, laplaceList;
+vector<GLfloat> maxList;
 const int pyrLevel = 5;
 vector<bool> bgMask, outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
@@ -788,6 +789,13 @@ double compress(double x, double alpha, int n)
 	return c;
 }
 
+void recordMax(vector<GLfloat> v)
+{
+	vector<GLfloat>::iterator first = v.begin();
+	vector<GLfloat>::iterator last = v.end();
+	maxList.push_back( *max_element ( first, last ) );
+}
+
 void BuildRelief(vector<GLfloat> &height, GLdouble *pThreadRelief, GLdouble *pThreadNormal)
 {
 	for(int i=0; i < height.size() / (winHeight - boundary*2) - 1; i++)
@@ -978,6 +986,9 @@ void softPath(void)
 			laplacianFilter(heightPyr[0], laplace);
 			laplaceList.clear();
 			laplaceList.push_back(laplace);
+
+			maxList.clear();
+			recordMax(laplace);
 			//for(int i=0; i<height.size(); i++)
 			//{
 			//	if ( height.at(i) == 1 )	//infinite point
@@ -1270,7 +1281,7 @@ void reliefHistogram(void)
 			
 			//heightList.push_back(height);
 			vector<GLfloat> height2, upHeight, laplace[pyrLevel - 1];
-			IplImage *img, *img2, *imgLa;
+			IplImage *img, *img2, *imgGa, *imgLa;
 			/*subSample(heightList.at(0), height2);
 			heightList.push_back(height2);*/
 			//upSample(height2, upHeight);
@@ -1290,10 +1301,12 @@ void reliefHistogram(void)
 				laplaceList.push_back(laplace);*/
 				laplacianFilter(heightPyr[i], laplace[i]);
 				laplaceList.push_back(laplace[i]);
+				recordMax(laplace[i]);
 			}
 			
 			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
 			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
+			//thresholding
 			for(int i=0; i < width; i++)
 			{
 				for(int j=0; j < height; j++)
@@ -1313,24 +1326,39 @@ void reliefHistogram(void)
 				compressedH->push_back( height[pyrLevel - 1].at(i) );
 			}*/
 			
-			img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+			imgGa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 			imgLa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+			img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 
 			tempImg = cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
 			//cvGetImage(imgPyr[pyrLevel - 1], tempImg);
 			Relief2Image(	heightPyr.at( pyrLevel - 1), tempImg);
 			
-			cvPyrUp( tempImg, img );
+			cvPyrUp( tempImg, imgGa );
 
-			tempImg = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
-			cvCopy(img, tempImg);
-			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa);
-			cvAdd(tempImg, imgLa, img);
-			//Image2Relief(img, compressedH);
+			//tempImg = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 			
+			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa);
+			cvCopy(imgLa, img);
+			
+			
+			width = imgPyr[pyrLevel - 2]->width;
 			for(int i=pyrLevel - 2; i > 0; i--)
 			{
-				int width = imgPyr[i]->width;
+				width *= 2;
+				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+				img2 = cvCreateImage( cvSize( width,  width ), IPL_DEPTH_32F, 1);
+				cvSetZero(img2);
+
+				cvPyrUp(imgGa, img2);	//upsample the smallest laplace
+				
+				imgGa = cvCreateImage( cvSize( width,  width ), IPL_DEPTH_32F, 1);
+				cvCopy(img2, imgGa);
+			}
+
+			for(int i=pyrLevel - 2; i > 0; i--)
+			{
+				width = imgPyr[i]->width;
 				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
 				img2 = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 				cvSetZero(img2);
@@ -1344,9 +1372,27 @@ void reliefHistogram(void)
 				/*Image2Relief(img2, compressedH);
 				reliefAdd( *compressedH, laplaceList.at(i) );*/
 			}
+			cvAdd(imgGa, img, img);
+	
 			Image2Relief(img, compressedH);
 
 			bgFilter(compressedH, bgMask);
+			vector<GLfloat>::iterator first = compressedH.begin();
+			vector<GLfloat>::iterator last = compressedH.end();
+			GLfloat max = *max_element ( first, last );
+			
+			vector<GLfloat> gaussianH;
+			Image2Relief(imgGa, gaussianH);
+			bgFilter( gaussianH, bgMask);
+			recordMax( gaussianH );
+			for(int i=0;i< compressedH.size(); i++)
+			{
+				compressedH.at(i) /= max; //normalize
+			}
+			for(int i=0;i < maxList.size(); i++)
+			{
+				cout << "level[" << i << "]: " << maxList[i]/max << endl;
+			}
 			//upHeight.clear();
 		/*	height2.clear();
 			upSample(heightList.at(1), height2);
@@ -1371,6 +1417,8 @@ void reliefHistogram(void)
 		glRotatef(reliefAngleY, 0, 1, 0);
 		glRotatef(reliefAngleZ, 0, 0, 1);
 
+		
+		
 		glScalef(0.01*scale,0.01*scale,outputHeight);
 
 		glTranslated(-2/0.01, -2/0.01, 0.4);
