@@ -651,8 +651,7 @@ void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, int aperture=7)
 	for(int i=0; i < width; i++)
 	{
 		for(int j=0; j < height; j++)
-		{
-			
+		{			
 			//dst.push_back( src1.at( adress ) - src2.at( adress ) );
 			vector<GLfloat> sub;
 			vector<GLfloat*> subLaplace;
@@ -722,9 +721,7 @@ void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, int aperture=7)
 			
 			
 			subSample( sub, sub2 );
-			upSample( sub2, upSub );
-
-			
+			upSample( sub2, upSub );		
 			
 			//Image2Relief(imgUp, upSub);
 			updateLaplace( sub, upSub, subLaplace);
@@ -753,7 +750,7 @@ void bgFilter(vector<float> &src, vector<bool> mask)
 	}
 }
 
-void extractOutline(vector<bool> src, vector<bool> dst)
+void extractOutline(vector<float> src, vector<float> &dst)
 {
 	int width = sqrt( (float) src.size() );
 	int height = sqrt( (float) src.size() );
@@ -762,9 +759,16 @@ void extractOutline(vector<bool> src, vector<bool> dst)
 	{
 		for(int j=0; j < height; j++)
 		{
-			if( src.at(i*height + j) )
+			if( src.at(i*height + j) != 0)
 			{
-
+				//not avoiding boundary issues
+				if(	src.at( i*height + (j+1) ) == 0 ||
+					src.at( (i+1)*height + j ) == 0 ||
+					src.at( i*height + (j-1) ) == 0 ||
+					src.at( (i-1)*height + j ) == 0 )
+				{
+					dst.at( i*height + j ) = src.at(i*height + j);
+				}
 			}
 		}
 	}
@@ -806,8 +810,8 @@ void showGradient(char a[], IplImage *src, IplImage *dst)
 		}
 	}
 	cout << "max: " << max << endl;
-	cvConvertScaleAbs(src, ImageX, 255/max, 0);
-	cvConvertScaleAbs(src, ImageY, 255/max, 0);
+	cvConvertScaleAbs(src, ImageX, 255, 0);
+	cvConvertScaleAbs(src, ImageY, 255, 0);
 
 
 	max =0;
@@ -819,7 +823,7 @@ void showGradient(char a[], IplImage *src, IplImage *dst)
 			max = cvGetReal2D( ImageX, i, j );
 		}
 	}
-	cout << max << endl;
+	cout << "gradient max: " << max << endl;
 
 	gradientX1 =  cvCreateImage( cvGetSize(src),  IPL_DEPTH_16S, 1);
 	gradientY1 =  cvCreateImage( cvGetSize(src),  IPL_DEPTH_16S, 1);
@@ -841,7 +845,7 @@ void showGradient(char a[], IplImage *src, IplImage *dst)
 			sum -= x;
 		}
 	}
-	cout << sum << endl;
+	cout << "sum: "<< sum << endl;
 
 	cvConvertScaleAbs(gradientX1, ImageX, 1, 0);
 	cvConvertScaleAbs(gradientY1, ImageY, 1, 0);
@@ -855,7 +859,7 @@ void showGradient(char a[], IplImage *src, IplImage *dst)
 			sum += x;
 		}
 	}
-	cout << sum;
+	cout << "gradient sum: " << sum << endl;
 
 
 	/*cvPow( ImageX,  ImageX, 2);
@@ -1115,6 +1119,7 @@ void softPath(void)
 
 			bgFilter(compressedH, bgMask);
 			
+			
 			double sum =0;
 			for(int i=0; i<width; i++)
 			{
@@ -1123,7 +1128,7 @@ void softPath(void)
 					sum += compressedH.at(i + j*width);
 				}
 			}
-			cout << sum<<endl;
+			cout << "relief sum: " << sum << endl;
 
 			Relief2Image(compressedH, img);
 			//ImageX =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_8U, 1);
@@ -1519,7 +1524,7 @@ void reliefHistogram(void)
 			
 			//heightList.push_back(height);
 			vector<GLfloat> height2, upHeight, laplace[pyrLevel - 1];
-			IplImage *img, *img2, *imgLa;
+			IplImage *img, *img2, *imgLa, *base_img, *detail_img;
 			/*subSample(heightList.at(0), height2);
 			heightList.push_back(height2);*/
 			//upSample(height2, upHeight);
@@ -1541,9 +1546,10 @@ void reliefHistogram(void)
 				laplaceList.push_back(laplace[i]);
 			}
 			
+			//thresholding
 			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
 			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
-			for(int i=0; i < width; i++)
+			/*for(int i=0; i < width; i++)
 			{
 				for(int j=0; j < height; j++)
 				{
@@ -1553,10 +1559,10 @@ void reliefHistogram(void)
 						heightPyr[pyrLevel - 1][adress] = 0;
 					}
 				}
-			}
+			}*/
 
 			//collapse the pyramid
-			vector<GLfloat> compressedH;
+			vector<GLfloat> compressedH, outline;
 			/*for(int i=0;i < height[pyrLevel - 1].size(); i++)
 			{
 				compressedH->push_back( height[pyrLevel - 1].at(i) );
@@ -1585,11 +1591,36 @@ void reliefHistogram(void)
 				/*Image2Relief(img2, compressedH);
 				reliefAdd( *compressedH, laplaceList.at(i) );*/
 			}
+
+			
 			Image2Relief(img, compressedH);
 
 			bgFilter(compressedH, bgMask);
+
+			for(int i=0; i < compressedH.size(); i++)
+			{
+				outline.push_back(0);
+			}
+			extractOutline(compressedH, outline);
+		/*	for(int i=0; i < outline.size(); i++)
+			{
+				if(outline[i] == 0)
+				{
+					outline.erase( outline.begin() + i );
+					i--;
+				}
+			}*/
+			
+			vector<GLfloat>::iterator first = outline.begin();
+			vector<GLfloat>::iterator last = outline.end();
+			outline.erase( remove(first, last, 0), outline.end() );
+			first = outline.begin();
+			last = outline.end();
+			GLfloat outline_min = *min_element ( first, last);
+			nth_element ( first, first + outline.size()/2, last );
+			GLfloat outline_med = outline[ outline.size()/2 ];
 			//upHeight.clear();
-		/*	height2.clear();
+			/*	height2.clear();
 			upSample(heightList.at(1), height2);
 
 			reliefAdd(height2, laplace, upHeight);
@@ -1598,6 +1629,26 @@ void reliefHistogram(void)
 			//upHeight.clear();
 			//reliefAdd(height2, laplaceList.at(0), upHeight);
 			Relief2Image(compressedH, img2);
+			
+			/*****	bilateral filter	*****/
+			base_img = cvCreateImage( cvGetSize( img2 ), IPL_DEPTH_8U, 1);
+			detail_img = cvCreateImage( cvGetSize( img2 ), IPL_DEPTH_8U, 1);
+
+			cvConvertScaleAbs(img2, base_img, 255, 0);
+			cvConvertScaleAbs(img2, detail_img, 255, 0);
+			cvSmooth(detail_img, base_img, CV_BILATERAL, 0, 0, outline_med*255, 11);
+			cvSub(detail_img, base_img, detail_img);
+			
+			for(int i=0; i < cvGetSize( img2 ).width; i++)
+			{
+				for(int j=0; j < cvGetSize( img2 ).height; j++)
+				{
+					cvSetReal2D( img2, j, i, cvGetReal2D(detail_img, j, i) / 255 );
+				}
+			}
+			/*****	bilateral filter	*****/
+			Image2Relief(img2, compressedH);
+
 			Image2 =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_8U, 1);
 			showGradient("Show Thresholding Gradient", img2, Image2);
 

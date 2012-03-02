@@ -463,7 +463,7 @@ void Relief2Image(vector<GLfloat> src, IplImage *dst)
 	{
 		for(int j=0; j < height; j++)
 		{
-			cvSetReal2D( dst, j, i, (double) src.at( i*height + j ) );
+			cvSetReal2D( dst, height - 1 - j, i, (double) src.at( i*height + j ) );
 		}
 	}
 }
@@ -479,7 +479,7 @@ void Image2Relief(IplImage *src, vector<GLfloat> &dst)
 	{
 		for(int j=0; j < height; j++)
 		{
-			dst.push_back( (float)cvGetReal2D( src, j, i) );
+			dst.push_back( (float)cvGetReal2D( src, height - 1 - j, i) );
 		}
 	}
 }
@@ -495,7 +495,7 @@ void Image2Relief(IplImage *src, vector<GLdouble> &dst)
 	{
 		for(int j=0; j < height; j++)
 		{
-			dst.push_back( cvGetReal2D( src, j, i) );
+			dst.push_back( cvGetReal2D( src, height - 1 - j, i) );
 		}
 	}
 }
