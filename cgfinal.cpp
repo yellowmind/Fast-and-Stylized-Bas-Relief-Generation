@@ -62,7 +62,8 @@ GLfloat lightPos2[] = { -27.f, 15.0f, 7.5, 1.0f };
 GLdouble MODELSCALE = 1.0;
 GLdouble LIGHTP = 15;
 
-bool relief=true,relief2=true;
+bool relief=false, relief2=false ,mesh1=false, mesh2=false;
+float dynamicRange;
 GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =1;
 GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
 GLdouble outputHeight = 0.1	;//0.075;
@@ -85,6 +86,7 @@ GLdouble *pThreadEqualizeNormal = NULL;
 GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
+int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
 
 /*----------------------------------------------------------------------*/
 /*
@@ -453,7 +455,8 @@ void setNormal(double v[3][3], double out[3])				// Calculates Normal For A Quad
 	ReduceToUnit(out);						// Normalize The Vectors
 }
 
-void Relief2Image(vector<GLfloat> src, IplImage *dst)
+template <class T>
+void Relief2Image(vector<T> src, IplImage *dst)
 {
 	int width = sqrt( (float) src.size() );
 	int height = sqrt( (float) src.size() );
@@ -467,6 +470,21 @@ void Relief2Image(vector<GLfloat> src, IplImage *dst)
 		}
 	}
 }
+
+//void Relief2Image(vector<GLfloat> src, IplImage *dst)
+//{
+//	int width = sqrt( (float) src.size() );
+//	int height = sqrt( (float) src.size() );
+//
+//	
+//	for(int i=0; i < width; i++)
+//	{
+//		for(int j=0; j < height; j++)
+//		{
+//			cvSetReal2D( dst, height - 1 - j, i, (double) src.at( i*height + j ) );
+//		}
+//	}
+//}
 
 void Image2Relief(IplImage *src, vector<GLfloat> &dst)
 {
@@ -753,7 +771,24 @@ void bgFilter(vector<float> &src, vector<bool> mask)
 	}
 }
 
-void extractOutline(vector<bool> src, vector<bool> dst)
+void bgFilter(IplImage *src, IplImage  *mask)
+{	
+	int width =src->width;
+	int height = src->height;
+
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			if( cvGetReal2D( mask, j, i) && cvGetReal2D( src, j, i) )
+			{
+				cvSetReal2D( src, j, i, 0 );
+			}
+		}
+	}
+}
+
+void extractOutline(vector<float> src, vector<float> &dst)
 {
 	int width = sqrt( (float) src.size() );
 	int height = sqrt( (float) src.size() );
@@ -762,9 +797,40 @@ void extractOutline(vector<bool> src, vector<bool> dst)
 	{
 		for(int j=0; j < height; j++)
 		{
-			if( src.at(i*height + j) )
+			if( src.at(i*height + j) != 0)
 			{
+				//not avoiding boundary issues
+				if(	src.at( i*height + (j+1) ) == 0 ||
+					src.at( (i+1)*height + j ) == 0 ||
+					src.at( i*height + (j-1) ) == 0 ||
+					src.at( (i-1)*height + j ) == 0 )
+				{
+					dst.at( i*height + j ) = src.at(i*height + j);
+				}
+			}
+		}
+	}
+}
 
+void extractOutline(IplImage *src, IplImage *dst)
+{
+	int width = src->width;
+	int height = src->height;
+	
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			if( cvGetReal2D( src, j, i)  != 0)
+			{
+				//not avoiding boundary issues
+				if(	cvGetReal2D( src, j+1, i ) == 0 ||
+					cvGetReal2D( src, j, i+1 ) == 0 ||
+					cvGetReal2D( src, j-1, i) == 0 ||
+					cvGetReal2D( src, j, i-1 ) == 0 )
+				{
+					cvSetReal2D( dst, j, i, cvGetReal2D( src, j, i) );
+				}
 			}
 		}
 	}
@@ -928,7 +994,8 @@ void softPath(void)
 					bgMask.push_back(0);
 				}
 			}
-	
+
+			dynamicRange = (1-minDepth)/(1-maxDepth);
 
 			int enhance = 50;
 			double maxDepthPrime = compress(maxDepth*enhance, 5, 5);
@@ -1002,6 +1069,7 @@ void softPath(void)
 			//	}
 			//}
 			BuildRelief(laplace, pThreadRelief, pThreadNormal);
+			mesh1 = true;
 			relief = false;
 		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
@@ -1017,6 +1085,8 @@ void softPath(void)
 
 		glTranslated(-2/0.01, -2/0.01, 0.4);
 		
+		if(mesh1)
+		{
 			for(int i=0; i < heightPyr[0].size() / (winHeight - boundary*2) - 1; i++)
 			{			
 				for(int j=0; j < winHeight - boundary*2 - 1; j++)
@@ -1037,7 +1107,7 @@ void softPath(void)
 				}
 				
 			}
-		
+		}
 		//for(int i=0; i < height.size() / (winHeight - boundary*2) - 1; i++)
 		//{
 		//	for(int j=0; j < winHeight - boundary*2 -1; j++)
@@ -1281,7 +1351,7 @@ void reliefHistogram(void)
 			
 			//heightList.push_back(height);
 			vector<GLfloat> height2, upHeight, laplace[pyrLevel - 1];
-			IplImage *img, *img2, *imgGa, *imgLa;
+			IplImage *img, *img2, *imgGa, *imgLa, *bgImg, *base_img, *detail_img;
 			/*subSample(heightList.at(0), height2);
 			heightList.push_back(height2);*/
 			//upSample(height2, upHeight);
@@ -1307,7 +1377,7 @@ void reliefHistogram(void)
 			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
 			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
 			//thresholding
-			for(int i=0; i < width; i++)
+			/*for(int i=0; i < width; i++)
 			{
 				for(int j=0; j < height; j++)
 				{
@@ -1317,10 +1387,10 @@ void reliefHistogram(void)
 						heightPyr[pyrLevel - 1][adress] = 0;
 					}
 				}
-			}
+			}*/
 
 			//collapse the pyramid
-			vector<GLfloat> compressedH;
+			vector<GLfloat> compressedH, outline;
 			/*for(int i=0;i < height[pyrLevel - 1].size(); i++)
 			{
 				compressedH->push_back( height[pyrLevel - 1].at(i) );
@@ -1330,17 +1400,46 @@ void reliefHistogram(void)
 			imgLa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 			img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 
-			tempImg = cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
+			
 			//cvGetImage(imgPyr[pyrLevel - 1], tempImg);
-			Relief2Image(	heightPyr.at( pyrLevel - 1), tempImg);
-			
-			cvPyrUp( tempImg, imgGa );
 
-			//tempImg = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+			/*****	gaussian layer	*****/
+			bgImg = cvCreateImage( cvGetSize(imgPyr[0]), IPL_DEPTH_32F, 1);
+			Relief2Image( bgMask, bgImg );
 			
-			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa);
-			cvCopy(imgLa, img);
+			for(int i=0; i < pyrLevel-1; i++)
+			{
+				tempImg = cvCreateImage( cvSize(bgImg->width/2, bgImg->height/2), IPL_DEPTH_32F, 1);
+				cvPyrDown(bgImg, tempImg);
+				bgImg = cvCreateImage( cvGetSize(tempImg), IPL_DEPTH_32F, 1);
+			}
+			cvCopy(tempImg, bgImg);
+
+			tempImg = cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
+			Relief2Image(	heightPyr.at( pyrLevel - 1), tempImg);
+
+			//bgFilter( tempImg, bgImg);
+			cvPyrUp( tempImg, imgGa );
 			
+			/*****	bilateral filter	*****/
+			//base_img = cvCreateImage( cvGetSize( imgGa ), IPL_DEPTH_8U, 1);
+			//detail_img = cvCreateImage( cvGetSize( imgGa ), IPL_DEPTH_8U, 1);
+
+			////cvConvertScaleAbs(img2, base_img, 255, 0);
+			//cvConvertScaleAbs(imgGa, detail_img, 255, 0);
+			//cvSmooth(detail_img, base_img, CV_BILATERAL, 0, 0, 0.95, 11);
+			//cvSub(detail_img, base_img, detail_img);
+			//
+			//for(int i=0; i < cvGetSize( imgGa ).width; i++)
+			//{
+			//	for(int j=0; j < cvGetSize( imgGa ).height; j++)
+			//	{
+			//		cvSetReal2D( imgGa, j, i, cvGetReal2D(detail_img, j, i) / 255 );
+			//	}
+			//}
+			/*****	bilateral filter	*****/
+
+			tempImg = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);	
 			
 			width = imgPyr[pyrLevel - 2]->width;
 			for(int i=pyrLevel - 2; i > 0; i--)
@@ -1355,7 +1454,15 @@ void reliefHistogram(void)
 				imgGa = cvCreateImage( cvSize( width,  width ), IPL_DEPTH_32F, 1);
 				cvCopy(img2, imgGa);
 			}
+			
 
+			/*****	gaussian  layer	*****/
+
+			/*****	laplacian layer	*****/
+			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa);
+			
+			//cvAdd(imgGa, imgLa, img);
+			cvCopy(imgLa, img);
 			for(int i=pyrLevel - 2; i > 0; i--)
 			{
 				width = imgPyr[i]->width;
@@ -1369,32 +1476,83 @@ void reliefHistogram(void)
 
 				img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 				cvAdd(img2, imgLa, img);
+				//cvCopy(img2, img);
 				/*Image2Relief(img2, compressedH);
 				reliefAdd( *compressedH, laplaceList.at(i) );*/
-			}
-			cvAdd(imgGa, img, img);
-	
-			Image2Relief(img, compressedH);
+				img2 = cvCreateImage( cvGetSize( img ), IPL_DEPTH_8U, 1);
+				cvConvertScaleAbs(img, img2, 128, 128);
+				char a[15];
+				sprintf(a,"%d", i);
+				cvNamedWindow(a, 1);
+				cvShowImage(a, img2);
 
+			}
+			/*****	laplacian layer	*****/
+
+			Image2Relief(imgGa, compressedH);
 			bgFilter(compressedH, bgMask);
-			vector<GLfloat>::iterator first = compressedH.begin();
-			vector<GLfloat>::iterator last = compressedH.end();
+
+			for(int i=0; i < compressedH.size(); i++)
+			{
+				outline.push_back(0);
+			}
+			extractOutline(compressedH, outline);
+			
+			vector<GLfloat>::iterator first = outline.begin();
+			vector<GLfloat>::iterator last = outline.end();
+			outline.erase( remove(first, last, 0), outline.end() );
+			first = outline.begin();
+			last = outline.end();
+			GLfloat outline_min = *min_element ( first, last);
+			GLfloat outline_max = *max_element ( first, last);
+			nth_element ( first, first + outline.size()/2, last );
+			GLfloat outline_med = outline[ outline.size()/2 ];
+			
+			//Relief2Image(compressedH, img2);
+			/*****	bilateral filter	*****/
+			if( ReliefType == 1 )
+			{
+				base_img = cvCreateImage( cvGetSize( imgGa ), IPL_DEPTH_8U, 1);
+				detail_img = cvCreateImage( cvGetSize( imgGa ), IPL_DEPTH_8U, 1);
+
+				//cvConvertScaleAbs(img2, base_img, 255, 0);
+				cvConvertScaleAbs(imgGa, detail_img, 255, 0);
+				cvSmooth(detail_img, base_img, CV_BILATERAL, 0, 0, (outline_max+outline_min)/2*255, 25);
+				cvSub(detail_img, base_img, detail_img);
+				
+				//img2 = cvCreateImage( cvGetSize( img ), IPL_DEPTH_32F, 1);
+				for(int i=0; i < cvGetSize( imgGa ).width; i++)
+				{
+					for(int j=0; j < cvGetSize( imgGa ).height; j++)
+					{
+						cvSetReal2D( imgGa, j, i, cvGetReal2D(detail_img, j, i) / 255 );
+					}
+				}
+			}
+			/*****	bilateral filter	*****/
+
+			cvAdd(img, imgGa, img);
+			Image2Relief(img, compressedH);
+			bgFilter( compressedH, bgMask );
+			
+			first = compressedH.begin();
+			last = compressedH.end();
 			GLfloat max = *max_element ( first, last );
 			
 			vector<GLfloat> gaussianH;
 			Image2Relief(imgGa, gaussianH);
 			bgFilter( gaussianH, bgMask);
 			recordMax( gaussianH );
-			for(int i=0;i< compressedH.size(); i++)
-			{
-				compressedH.at(i) /= max; //normalize
-			}
+			//for(int i=0;i< compressedH.size(); i++)
+			//{
+			//	compressedH.at(i) /= max; //normalize
+			//}
 			for(int i=0;i < maxList.size(); i++)
 			{
 				cout << "level[" << i << "]: " << maxList[i]/max << endl;
 			}
 			//upHeight.clear();
-		/*	height2.clear();
+			/*	height2.clear();
 			upSample(heightList.at(1), height2);
 
 			reliefAdd(height2, laplace, upHeight);
@@ -1404,8 +1562,8 @@ void reliefHistogram(void)
 			//reliefAdd(height2, laplaceList.at(0), upHeight);
 
 			BuildRelief(compressedH, pThreadEqualizeRelief, pThreadEqualizeNormal);
-
 			
+			mesh2 = true;
 			relief2 = false;
 		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
@@ -1424,7 +1582,8 @@ void reliefHistogram(void)
 		glTranslated(-2/0.01, -2/0.01, 0.4);
 
 		
-		
+		if(mesh2)
+		{
 			for(int i=0; i <heightPyr.at(0).size() / (winHeight - boundary*2) - 1; i++)
 			{			
 				for(int j=0; j < winHeight - boundary*2 - 1; j++)
@@ -1445,7 +1604,7 @@ void reliefHistogram(void)
 				}
 				
 			}
-		
+		}
 		//for(int i=0; i < height.size() / (winHeight - boundary*2) - 1; i++)
 		//{
 		//	for(int j=0; j < winHeight - boundary*2 -1; j++)
@@ -1838,10 +1997,15 @@ void myKeys(unsigned char key, int x, int y)
 			break;
 
         case '0':  
-			DRAWTYPE=0; 
+			//DRAWTYPE=0; 
+			ReliefType = 0;
 			break;
         case '1':  
-			DRAWTYPE=1; 
+			//DRAWTYPE=1; 
+			ReliefType = 1;
+			break;
+		case '3':  
+			ReliefType=2;
 			break;
         case '4':  
 			reliefAngleY--;
@@ -1946,7 +2110,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("dragon.obj");
+	MODEL = glmReadOBJ("asain dragon.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);

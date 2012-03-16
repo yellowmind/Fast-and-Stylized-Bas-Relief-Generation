@@ -62,7 +62,8 @@ GLfloat lightPos2[] = { -27.f, 15.0f, 7.5, 1.0f };
 GLdouble MODELSCALE = 1.0;
 GLdouble LIGHTP = 15;
 
-bool relief=true,relief2=true;
+bool relief=false,relief2=false,mesh1=false,mesh2=false;
+float dynamicRange;
 GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =1;
 GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
 GLdouble outputHeight = 0.1	;//0.075;
@@ -998,7 +999,7 @@ void softPath(void)
 		glMultMatrixd(TRACKM);
 		
 		
-		GLfloat maxDepth=0,minDepth=1;
+		GLfloat maxDepth=0, max2Depth=0, minDepth=1;
 		if(relief)
 		{
 			disp++;
@@ -1017,6 +1018,7 @@ void softPath(void)
 
 					if( maxDepth < depth && depth !=1)
 					{
+						max2Depth = maxDepth;
 						maxDepth = depth;
 					}
 					if( minDepth > depth)
@@ -1027,7 +1029,8 @@ void softPath(void)
 					bgMask.push_back(0);
 				}
 			}
-	
+
+			dynamicRange = (maxDepth - minDepth) / (maxDepth - max2Depth);
 
 			int enhance = 50;
 			double maxDepthPrime = compress(maxDepth*enhance, 5, 5);
@@ -1245,6 +1248,7 @@ void softPath(void)
 			showGradient("Show Original Gradient", img, Image);
 
 			BuildRelief(compressedH, pThreadRelief, pThreadNormal);
+			mesh1 = true;
 			relief = false;
 		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
@@ -1259,7 +1263,8 @@ void softPath(void)
 		glScalef(0.01*scale,0.01*scale,outputHeight);
 
 		glTranslated(-2/0.01, -2/0.01, 0.4);
-		
+		if(mesh1)
+		{
 			for(int i=0; i < heightPyr[0].size() / (winHeight - boundary*2) - 1; i++)
 			{			
 				for(int j=0; j < winHeight - boundary*2 - 1; j++)
@@ -1280,6 +1285,7 @@ void softPath(void)
 				}
 				
 			}
+		}
 		
 		//for(int i=0; i < height.size() / (winHeight - boundary*2) - 1; i++)
 		//{
@@ -1617,6 +1623,7 @@ void reliefHistogram(void)
 			first = outline.begin();
 			last = outline.end();
 			GLfloat outline_min = *min_element ( first, last);
+			GLfloat outline_max = *max_element ( first, last);
 			nth_element ( first, first + outline.size()/2, last );
 			GLfloat outline_med = outline[ outline.size()/2 ];
 			//upHeight.clear();
@@ -1636,7 +1643,7 @@ void reliefHistogram(void)
 
 			cvConvertScaleAbs(img2, base_img, 255, 0);
 			cvConvertScaleAbs(img2, detail_img, 255, 0);
-			cvSmooth(detail_img, base_img, CV_BILATERAL, 0, 0, outline_med*255, 11);
+			cvSmooth(detail_img, base_img, CV_BILATERAL, 0, 0, outline_med*255, 25);
 			cvSub(detail_img, base_img, detail_img);
 			
 			for(int i=0; i < cvGetSize( img2 ).width; i++)
@@ -1659,6 +1666,7 @@ void reliefHistogram(void)
 			cvNamedWindow("Show Difference", 1);
 			cvShowImage("Show Difference", Diff);
 			
+			mesh2 = true;
 			relief2 = false;
 		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
@@ -1675,7 +1683,8 @@ void reliefHistogram(void)
 		glTranslated(-2/0.01, -2/0.01, 0.4);
 
 		
-		
+		if(mesh2)
+		{
 			for(int i=0; i <heightPyr.at(0).size() / (winHeight - boundary*2) - 1; i++)
 			{			
 				for(int j=0; j < winHeight - boundary*2 - 1; j++)
@@ -1696,6 +1705,7 @@ void reliefHistogram(void)
 				}
 				
 			}
+		}
 		
 		//for(int i=0; i < height.size() / (winHeight - boundary*2) - 1; i++)
 		//{
@@ -1899,38 +1909,46 @@ void stopMotion(int x, int y)
 void displayfont()
 {
     //Font
-	char mss[30]="3D Scene";
+	char mss01[30]="3D Scene";
 	//sprintf(mss, "Score %d", Gamescore);
 	glColor3f(1.0, 0.0, 0.0);  //set font color
 	void * font = GLUT_BITMAP_9_BY_15;
 
 	glWindowPos2i(10, winHeight-20);    //set font start position
-	for(unsigned int i=0; i<strlen(mss); i++) {
-		glutBitmapCharacter(font, mss[i]);
+	for(unsigned int i=0; i<strlen(mss01); i++) {
+		glutBitmapCharacter(font, mss01[i]);
 	}
 
-	char mss1[30]="1st Laplace";
+	char mss02[30];
+	sprintf(mss02, "%f", dynamicRange);
+
+	glWindowPos2i(10+winWidth/6, winHeight-20);    //set font start position
+	for(unsigned int i=0; i<strlen(mss02); i++) {
+		glutBitmapCharacter(font, mss02[i]);
+	}
+
+	char mss11[30]="1st Laplace";
 	
 	glWindowPos2i(10+(winWidth/3), winHeight-20);    //set font start position
-	for(unsigned int i=0; i<strlen(mss1); i++) {
-		glutBitmapCharacter(font, mss1[i]);
+	for(unsigned int i=0; i<strlen(mss11); i++) {
+		glutBitmapCharacter(font, mss11[i]);
 	}
 	
-	char mss2[30]="Computing...";
+	char mss12[30]="Computing...";
 	if(relief)
 	{
 		glColor3f(0.0, 1.0, 0.0);
 		glWindowPos2i(10+(winWidth/3), winHeight-40);    //set font start position
-		for(unsigned int i=0; i<strlen(mss2); i++) {
-			glutBitmapCharacter(font, mss2[i]);
+		for(unsigned int i=0; i<strlen(mss12); i++) {
+			glutBitmapCharacter(font, mss12[i]);
 		}
 	}
 	
-	char mss3[30]="Bas-Relief";
+	char mss21[30]="Bas-Relief";
 	
 	glWindowPos2i(10+(winWidth*2/3), winHeight-20);    //set font start position
-	for(unsigned int i=0; i<strlen(mss1); i++) {
-		glutBitmapCharacter(font, mss3[i]);
+	for(unsigned int i=0; i<strlen(mss21); i++) {
+		glutBitmapCharacter(font, mss21[i]);
 	}
 	//char mss3[30];
 	//sprintf(mss3,"%f",scale);
@@ -2164,6 +2182,8 @@ void SpecialKeys(int key, int x, int y)
 			setZeroAxis();
 			break;
 	}
+
+	glutPostRedisplay();
 }
 
 int main(int argc, char **argv)
@@ -2198,7 +2218,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("dragon.obj");
+	MODEL = glmReadOBJ("asain dragon.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);

@@ -40,7 +40,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				AdditionalIncludeDirectories="D:\Software\SDK\OpenCV\OpenCV2.0\include\opencv"
+				AdditionalIncludeDirectories="&quot;$(OPENCV20)include\opencv&quot;"
 				PreprocessorDefinitions="WIN32;_DEBUG;_CONSOLE"
 				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
@@ -61,9 +61,9 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="D:\Software\SDK\OpenCV\OpenCV2.0\lib\cv200d.lib D:\Software\SDK\OpenCV\OpenCV2.0\lib\cvaux200d.lib D:\Software\SDK\OpenCV\OpenCV2.0\lib\cvhaartraining.lib D:\Software\SDK\OpenCV\OpenCV2.0\lib\cxcore200d.lib D:\Software\SDK\OpenCV\OpenCV2.0\lib\cxts200d.lib D:\Software\SDK\OpenCV\OpenCV2.0\lib\highgui200d.lib D:\Software\SDK\OpenCV\OpenCV2.0\lib\ml200d.lib D:\Software\SDK\OpenCV\OpenCV2.0\lib\opencv_ffmpeg200d.lib"
+				AdditionalDependencies="cv200d.lib cvaux200d.lib cvhaartraining.lib cxcore200d.lib cxts200d.lib highgui200d.lib ml200d.lib opencv_ffmpeg200d.lib"
 				LinkIncremental="2"
-				AdditionalLibraryDirectories=""
+				AdditionalLibraryDirectories="$(OPENCV20)lib"
 				GenerateDebugInformation="true"
 				SubSystem="1"
 				TargetMachine="1"
@@ -118,7 +118,7 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
-				AdditionalIncludeDirectories="D:\Software\SDK\OpenCV\OpenCV2.0\VS2005\include\opencv"
+				AdditionalIncludeDirectories="&quot;$(OPENCV20)VS2005\include\opencv&quot;"
 				PreprocessorDefinitions="WIN32;NDEBUG;_CONSOLE"
 				RuntimeLibrary="2"
 				UsePrecompiledHeader="0"
@@ -139,7 +139,7 @@
 				Name="VCLinkerTool"
 				AdditionalDependencies="cv200.lib cvaux200.lib cvhaartraining.lib cxcore200.lib cxts200.lib highgui200.lib ml200.lib opencv_ffmpeg200.lib"
 				LinkIncremental="1"
-				AdditionalLibraryDirectories="D:\Software\SDK\OpenCV\OpenCV2.0\VS2005\lib"
+				AdditionalLibraryDirectories="$(OPENCV20)VS2005\lib"
 				GenerateDebugInformation="true"
 				SubSystem="1"
 				OptimizeReferences="2"
@@ -181,7 +181,7 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
-				RelativePath=".\cgfinal2.cpp"
+				RelativePath=".\cgfinal.cpp"
 				>
 			</File>
 			<File
