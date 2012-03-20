@@ -19,6 +19,7 @@
 
 #include <iostream>
 #include <vector>
+#include "CVector3.h"
 
 #ifndef bool
 #define bool int
@@ -41,13 +42,14 @@ float minf(float a, float b)
 using namespace std;
 //using namespace cv;
 
-int 	winWidth, winHeight;
+int 	winWidth0, winHeight0, winWidth, winHeight;
 
 float 	angle = 0.0, axis[3], trans[3];
 bool 	trackingMouse = false;
 bool 	redrawContinue = false;
 bool    trackballMove = false;
 GLdouble TRACKM[16]={1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+GLfloat m[16]={1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 
 GLdouble DEBUG_M[16];
 
@@ -55,6 +57,7 @@ GLdouble Angle1=0, Angle2=0;
 GLint TICK=0;
 
 GLMmodel *MODEL;
+CVector3 farPoint, far2Point, nearPoint;
 GLfloat lightPos0[] = { -15.f, 15.0f, 15.0, 1.0f };
 GLfloat lightPos1[] = { -25.f, 15.0f, 7.5, 1.0f };
 GLfloat lightPos2[] = { -27.f, 15.0f, 7.5, 1.0f };
@@ -62,7 +65,7 @@ GLfloat lightPos2[] = { -27.f, 15.0f, 7.5, 1.0f };
 GLdouble MODELSCALE = 1.0;
 GLdouble LIGHTP = 15;
 
-bool relief=false, relief2=false ,mesh1=false, mesh2=false;
+bool scene=true, relief=false, relief2=false ,mesh1=false, mesh2=false;
 float dynamicRange;
 GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =1;
 GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
@@ -995,7 +998,7 @@ void softPath(void)
 				}
 			}
 
-			dynamicRange = (1-minDepth)/(1-maxDepth);
+			//dynamicRange = (1-minDepth)/(1-maxDepth);
 
 			int enhance = 50;
 			double maxDepthPrime = compress(maxDepth*enhance, 5, 5);
@@ -1662,14 +1665,15 @@ void openglPath(void)
     glLoadIdentity();
 	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
 	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	gluPerspective(60, (GLfloat)(winWidth*0.5)/winHeight, 0.1, 25); 
+	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
+	//gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, nearPoint.n[2], farPoint.n[2]); 
 	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
 
 
     glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
-	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
+	//gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
 	glGetDoublev(GL_MODELVIEW_MATRIX, DEBUG_M);
 
 	lightPos0[0] = -LIGHTP;
@@ -1697,13 +1701,14 @@ void openglPath(void)
 	
 	glPushMatrix();
 		//multiple trackball matrix
-		glRotated(angleX,1, 0, 0);
+		/*glRotated(angleX,1, 0, 0);
 		glRotated(angleY,0, 1, 0);
 		glRotated(angleZ,0, 0, 1);
 
 		glMultMatrixd(TRACKM);
 
-		glScaled(MODELSCALE, MODELSCALE, MODELSCALE);
+		glScaled(MODELSCALE, MODELSCALE, MODELSCALE);*/
+		glMultMatrixf(m);
 		glColor3f(1.0, 1.0, 1.0);
 		glmDraw(MODEL, GLM_SMOOTH);//GLM_FLAT
 		//glutSolidSphere(1, 20, 20);
@@ -1804,41 +1809,70 @@ void stopMotion(int x, int y)
 
 /*----------------------------------------------------------------------*/
 
+CVector3 GetOGLPos(float pos[3])
+{
+    GLint viewport[4];
+    GLdouble modelview[16];
+    GLdouble projection[16];
+    GLfloat winX, winY, winZ;
+    GLdouble posX, posY, posZ;
+ 
+    glGetDoublev( GL_MODELVIEW_MATRIX, modelview );
+    glGetDoublev( GL_PROJECTION_MATRIX, projection );
+    glGetIntegerv( GL_VIEWPORT, viewport );
+ 
+    /*winX = (float)x;
+    winY = (float)viewport[3] - (float)y;
+    glReadPixels( x, int(winY), 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &winZ );*/
+ 
+    gluUnProject( pos[0], pos[1], pos[2], modelview, projection, viewport, &posX, &posY, &posZ);
+ 
+    return CVector3(posX, posY, posZ);
+}
+
 void displayfont()
 {
     //Font
-	char mss[30]="3D Scene";
+	char mss01[30]="Clipping Scene";
 	//sprintf(mss, "Score %d", Gamescore);
 	glColor3f(1.0, 0.0, 0.0);  //set font color
 	void * font = GLUT_BITMAP_9_BY_15;
 
-	glWindowPos2i(10, winHeight-20);    //set font start position
-	for(unsigned int i=0; i<strlen(mss); i++) {
-		glutBitmapCharacter(font, mss[i]);
+	glWindowPos2i(10, winHeight-15);    //set font start position
+	for(unsigned int i=0; i<strlen(mss01); i++) {
+		glutBitmapCharacter(font, mss01[i]);
 	}
 
-	char mss1[30]="1st Laplace";
+	char mss02[30];
+	sprintf(mss02, "%f", dynamicRange);
+
+	glWindowPos2i(10+winWidth/6, winHeight-15);    //set font start position
+	for(unsigned int i=0; i<strlen(mss02); i++) {
+		glutBitmapCharacter(font, mss02[i]);
+	}
+
+	char mss11[30]="1st Laplace";
 	
-	glWindowPos2i(10+(winWidth/3), winHeight-20);    //set font start position
-	for(unsigned int i=0; i<strlen(mss1); i++) {
-		glutBitmapCharacter(font, mss1[i]);
+	glWindowPos2i(10+(winWidth/3), winHeight-15);    //set font start position
+	for(unsigned int i=0; i<strlen(mss11); i++) {
+		glutBitmapCharacter(font, mss11[i]);
 	}
 	
-	char mss2[30]="Computing...";
+	char mss12[30]="Computing...";
 	if(relief)
 	{
 		glColor3f(0.0, 1.0, 0.0);
-		glWindowPos2i(10+(winWidth/3), winHeight-40);    //set font start position
-		for(unsigned int i=0; i<strlen(mss2); i++) {
-			glutBitmapCharacter(font, mss2[i]);
+		glWindowPos2i(10+(winWidth/3), winHeight-35);    //set font start position
+		for(unsigned int i=0; i<strlen(mss12); i++) {
+			glutBitmapCharacter(font, mss12[i]);
 		}
 	}
 	
-	char mss3[30]="Bas-Relief";
+	char mss21[30]="Bas-Relief";
 	
-	glWindowPos2i(10+(winWidth*2/3), winHeight-20);    //set font start position
-	for(unsigned int i=0; i<strlen(mss1); i++) {
-		glutBitmapCharacter(font, mss3[i]);
+	glWindowPos2i(10+(winWidth*2/3), winHeight-15);    //set font start position
+	for(unsigned int i=0; i<strlen(mss21); i++) {
+		glutBitmapCharacter(font, mss21[i]);
 	}
 	//char mss3[30];
 	//sprintf(mss3,"%f",scale);
@@ -1846,6 +1880,142 @@ void displayfont()
 	//for(unsigned int i=0; i<strlen(mss1); i++) {
 	//	glutBitmapCharacter(font, mss3[i]);
 	//}
+}
+
+//Oringinal Scene
+void display0(void)
+{
+    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+
+    if (trackballMove) {
+		glPushMatrix();
+			glLoadMatrixd(TRACKM);
+			glRotatef(angle, axis[0], axis[1], axis[2]);
+			glGetDoublev(GL_MODELVIEW_MATRIX, TRACKM);
+		glPopMatrix();	    
+	}
+	
+	glEnable(GL_LIGHT0);
+	glDisable(GL_LIGHT1);
+	glDisable(GL_LIGHT2);
+	
+	//view transform
+	glViewport(0, 0, winWidth0, winHeight0);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
+	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
+	gluPerspective(60, (GLfloat)winWidth0/winHeight0, 0.1, 25); 
+	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
+
+
+    glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+
+	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
+	glGetDoublev(GL_MODELVIEW_MATRIX, DEBUG_M);
+
+	lightPos0[0] = -LIGHTP;
+	lightPos0[1] = LIGHTP;
+	lightPos0[2] = LIGHTP;
+	
+	glLightfv(GL_LIGHT0, GL_POSITION, lightPos0);
+
+	glTranslated(0, 0, 0);
+	//world coordinate
+	glColor3f(1, 0, 0);
+	
+	/*glPushMatrix();
+		glTranslated(0,0,0);
+		glutSolidSphere(1.5,9,9);
+	glPopMatrix();*/
+	/*OpenglLine(0, 0, 0, 3, 0, 0);
+	glColor3f(0, 1, 0);
+	OpenglLine(0, 0, 0, 0, 3, 0);
+	glColor3f(0, 0, 1);
+	OpenglLine(0, 0, 0, 0, 0, 3);*/
+
+	
+	glPushMatrix();
+		//multiple trackball matrix
+		glRotated(angleX,1, 0, 0);
+		glRotated(angleY,0, 1, 0);
+		glRotated(angleZ,0, 0, 1);
+
+		glMultMatrixd(TRACKM);
+
+		glScaled(MODELSCALE, MODELSCALE, MODELSCALE);
+		glColor3f(1.0, 1.0, 1.0);
+		//glGetFloatv(GL_MODELVIEW_MATRIX, mat);
+		glmDraw(MODEL, GLM_SMOOTH);//GLM_FLAT
+		//glutSolidSphere(1, 20, 20);
+	//glPopMatrix();
+
+	//glPushMatrix();
+	//	glTranslated(0, 2, 0);
+	//	glMultMatrixd(TRACKM);
+
+	//	/*glBegin(GL_TRIANGLES);
+	//		glNormal3f(0, 0, 1);
+	//		glColor3f(1, 0, 0);
+	//		glVertex3f(-1, 0, 0);
+
+	//		glColor3f(0, 1, 0);
+	//		glVertex3f(1, 0, 0);
+
+	//		glColor3f(0, 0, 1);
+	//		glVertex3f(0, 1, 0);
+	//	glEnd();		*/
+	//glPopMatrix();
+
+	float maxDepthPoint[3], minDepthPoint[3], max2DepthPoint[3];
+	maxDepthPoint[0] = 0, maxDepthPoint[1] = 0, maxDepthPoint[2] = 0;
+	minDepthPoint[2] = 1;
+
+	if( scene )
+	{
+		glGetFloatv(GL_MODELVIEW_MATRIX, m);
+
+		for(int i=boundary; i<winWidth0 - boundary; i++)
+		{
+			for(int j=boundary; j<winHeight0 - boundary; j++)
+			{
+				GLfloat depth;
+				glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+
+				if( maxDepthPoint[2] < depth && depth !=1)
+				{
+					max2DepthPoint[0] = maxDepthPoint[0];
+					max2DepthPoint[1] = maxDepthPoint[1];
+					max2DepthPoint[2] = maxDepthPoint[2];
+					
+					maxDepthPoint[0] = i;
+					maxDepthPoint[1] = j;
+					maxDepthPoint[2] = depth;
+				}
+				if( minDepthPoint[2] > depth)
+				{	
+					minDepthPoint[0] = i;
+					minDepthPoint[1] = j;
+					minDepthPoint[2] = depth;
+				}
+
+			}
+		}
+	
+
+		farPoint = GetOGLPos(maxDepthPoint);
+		far2Point = GetOGLPos(max2DepthPoint);
+		nearPoint = GetOGLPos(minDepthPoint);
+		
+		dynamicRange = (nearPoint.n[2] - farPoint.n[2]) / (far2Point.n[2] - farPoint.n[2]);
+
+		scene = false;
+	}
+	glPopMatrix();
+	
+	glutSwapBuffers();
 }
 
 void display(void)
@@ -1865,7 +2035,10 @@ void display(void)
 	glEnable(GL_LIGHT0);
 	glDisable(GL_LIGHT1);
 	glDisable(GL_LIGHT2);
-	openglPath();
+	if( !scene )
+	{
+		openglPath();
+	}
 
 	//we must disable the opengl's depth test, then the software depth test will work 
 	//glDisable(GL_DEPTH_TEST); 
@@ -1903,6 +2076,14 @@ void mouseButton(int button, int state, int x, int y)
 			stopMotion(x, y);
 			break;
     } 
+}
+
+void myReshape0(int w, int h)
+{
+    winWidth0 = w;
+    winHeight0 = h;
+
+	swInitZbuffer(w/2, h);
 }
 
 void myReshape(int w, int h)
@@ -1967,12 +2148,12 @@ void myKeys(unsigned char key, int x, int y)
 {
 	switch(key)
 	{
-		case ' ':
+		/*case ' ':
 			glPushMatrix();
 				glLoadIdentity();
 				glGetDoublev(GL_MODELVIEW_MATRIX, TRACKM);
 			glPopMatrix();	 
-			break;
+			break;*/
 
 		case 'a':
 			MODELSCALE += 0.5;
@@ -2030,6 +2211,10 @@ void myKeys(unsigned char key, int x, int y)
 			if(scale > 0.1)
 			scale -= 0.5; 
 			break;
+		//Space
+		case ' ':  
+			scene = true;
+			break;
 		//Enter
 		case 13:  
 			relief = true;
@@ -2084,16 +2269,99 @@ int main(int argc, char **argv)
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
 	int windowHeight = 440, horizontalSplit = 3;
-    glutInitWindowSize(windowHeight*horizontalSplit, windowHeight);
-    glutCreateWindow("Digital Bas-Relief from 3D Scenes");
+	glutInitWindowSize(windowHeight, windowHeight);
+	glutInitWindowPosition(0, 20);
+   int Window0 = glutCreateWindow("Oringinal Scene");
 
-    glutReshapeFunc(myReshape);
+    glutInitWindowSize(windowHeight*horizontalSplit, windowHeight);
+	glutInitWindowPosition(0, 505);
+    int Window = glutCreateWindow("Digital Bas-Relief from 3D Scenes");
+
 
 	vertCount = ( windowHeight - boundary*2 ) * ( windowHeight - boundary*2 );
 	pThreadRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3);
 	pThreadNormal = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3 *2);
 	pThreadEqualizeRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3);
 	pThreadEqualizeNormal = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3 *2);
+
+	GLfloat  ambientLight0[] = { 0.1f, 0.1f, 0.1f, 1.0f };
+    GLfloat  diffuseLight0[] = { 0.7f, 0.7f, 0.7f, 1.0f };
+    GLfloat  specular0[] = { 0.7f, 0.7f, 0.7f, 1.0f };
+
+	 GLfloat  ambientLight1[] = { 0.1f, 0.1f, 0.1f, 1.0f };
+    GLfloat  diffuseLight1[] = { 0.3f, 0.3f, 0.3f, 1.0f };
+    GLfloat  specular1[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+    GLfloat  specref[] = { 0.25f, 0.25f, 0.25f, 0.25f };
+	GLfloat  shininess = 32.0f;
+
+
+	glutSetWindow(Window0);
+    glutReshapeFunc(myReshape0);
+
+    glutDisplayFunc(display0);
+    glutIdleFunc(spinCube);
+    glutMouseFunc(mouseButton);
+    glutMotionFunc(mouseMotion);
+	glutKeyboardFunc(myKeys);
+	glutSpecialFunc(SpecialKeys);
+	glutTimerFunc(33, update, 0);
+
+	glEnable(GL_DEPTH_TEST); 
+	//glDepthRange(0.0, 5.0);
+	//Font = FontCreate(wglGetCurrentDC(), "Times", 32, 0, 1);
+
+
+
+	//Read model
+	MODEL = glmReadOBJ("asain dragon.obj");
+	glmUnitize(MODEL);
+	//glmFacetNormals(MODEL);
+	//glmVertexNormals(MODEL, 90);
+
+    // Light values and coordinates
+   
+    // Enable lighting
+    glEnable(GL_LIGHTING);
+
+    // Setup and enable light 0
+    glLightfv(GL_LIGHT0,GL_AMBIENT,ambientLight0);
+    glLightfv(GL_LIGHT0,GL_DIFFUSE,diffuseLight0);
+    glLightfv(GL_LIGHT0,GL_SPECULAR, specular0);
+    glEnable(GL_LIGHT0);
+
+	glLightfv(GL_LIGHT1,GL_AMBIENT,ambientLight1);
+    glLightfv(GL_LIGHT1,GL_DIFFUSE,diffuseLight1);
+    glLightfv(GL_LIGHT1,GL_SPECULAR, specular1);
+
+	glLightfv(GL_LIGHT2,GL_AMBIENT,ambientLight1);
+    glLightfv(GL_LIGHT2,GL_DIFFUSE,diffuseLight1);
+    glLightfv(GL_LIGHT2,GL_SPECULAR, specular1);
+    
+
+    // Enable color tracking
+    glEnable(GL_COLOR_MATERIAL);
+    // Set Material properties to follow glColor values
+    glColorMaterial(GL_FRONT, GL_AMBIENT_AND_DIFFUSE);
+
+	// All materials hereafter have full specular reflectivity with a high shine 
+    glMaterialfv(GL_FRONT, GL_SPECULAR, specref);
+    glMateriali(GL_FRONT, GL_SHININESS, shininess);
+
+	//
+	//hw3
+	//
+	swLightfv(GL_LIGHT0,GL_AMBIENT,ambientLight0);
+    swLightfv(GL_LIGHT0,GL_DIFFUSE,diffuseLight0);
+    swLightfv(GL_LIGHT0,GL_SPECULAR, specular0);
+
+    swMaterialfv(GL_FRONT, GL_SPECULAR, specref);
+    swMateriali(GL_FRONT, GL_SHININESS, shininess);
+
+
+	
+	glutSetWindow(Window);
+    glutReshapeFunc(myReshape);
 
     glutDisplayFunc(display);
     glutIdleFunc(spinCube);
@@ -2115,19 +2383,7 @@ int main(int argc, char **argv)
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
 
-    // Light values and coordinates
-    GLfloat  ambientLight0[] = { 0.1f, 0.1f, 0.1f, 1.0f };
-    GLfloat  diffuseLight0[] = { 0.7f, 0.7f, 0.7f, 1.0f };
-    GLfloat  specular0[] = { 0.7f, 0.7f, 0.7f, 1.0f };
-
-	 GLfloat  ambientLight1[] = { 0.1f, 0.1f, 0.1f, 1.0f };
-    GLfloat  diffuseLight1[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-    GLfloat  specular1[] = { 0.0f, 0.0f, 0.0f, 1.0f };
-
-
-    GLfloat  specref[] = { 0.25f, 0.25f, 0.25f, 0.25f };
-	GLfloat  shininess = 32.0f;
-
+   
     // Enable lighting
     glEnable(GL_LIGHTING);
 
