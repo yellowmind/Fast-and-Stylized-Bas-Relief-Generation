@@ -1665,8 +1665,8 @@ void openglPath(void)
     glLoadIdentity();
 	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
 	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
-	//gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, nearPoint.n[2], farPoint.n[2]); 
+	//gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
+	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, nearPoint.n[2], farPoint.n[2]); 
 	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
 
 
@@ -2022,7 +2022,7 @@ void display(void)
 {
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
-	displayfont();
+	//displayfont();
 
     if (trackballMove) {
 		glPushMatrix();
