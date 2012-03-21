@@ -118,7 +118,7 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
-				AdditionalIncludeDirectories="&quot;$(OPENCV20)VS2005\include\opencv&quot;"
+				AdditionalIncludeDirectories="&quot;$(OPENCV20)include\opencv&quot;"
 				PreprocessorDefinitions="WIN32;NDEBUG;_CONSOLE"
 				RuntimeLibrary="2"
 				UsePrecompiledHeader="0"
@@ -139,7 +139,7 @@
 				Name="VCLinkerTool"
 				AdditionalDependencies="cv200.lib cvaux200.lib cvhaartraining.lib cxcore200.lib cxts200.lib highgui200.lib ml200.lib opencv_ffmpeg200.lib"
 				LinkIncremental="1"
-				AdditionalLibraryDirectories="$(OPENCV20)VS2005\lib"
+				AdditionalLibraryDirectories="$(OPENCV20)lib"
 				GenerateDebugInformation="true"
 				SubSystem="1"
 				OptimizeReferences="2"

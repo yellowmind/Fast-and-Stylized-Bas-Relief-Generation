@@ -69,8 +69,8 @@ bool scene=true, relief=false, relief2=false ,mesh1=false, mesh2=false;
 float dynamicRange;
 GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =1;
 GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
-GLdouble outputHeight = 0.1	;//0.075;
-GLfloat threshold = 0.02;
+GLdouble outputHeight = 0.05;//0.075;
+GLfloat threshold = 0.04;
 vector< vector<GLfloat> > heightList, laplaceList;
 vector<GLfloat> maxList;
 const int pyrLevel = 5;
@@ -627,11 +627,44 @@ void reliefAdd(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat> &dst)
 	}
 }
 
-void remapping(GLfloat g, GLfloat threshold, vector<GLfloat> &dst)
+void remapping(vector<GLfloat> &dst, GLfloat g, GLfloat threshold)	//range compression
 {
 	for(int k=0; k < dst.size(); k++)
 	{
 		dst[k] = minf( maxf( dst.at(k), g - threshold), g + threshold );
+	}
+}
+
+GLfloat sign(GLfloat value)
+{
+	if(value > 0) return 1;
+	else if(value < 0) return -1;
+	else return 0;
+}
+
+GLfloat fdetail(GLfloat delta, GLfloat alpha)
+{
+	return pow(delta, alpha);
+}
+
+GLfloat fedge(GLfloat delta, GLfloat beta)
+{
+	return delta*beta;
+}
+
+void remapping(vector<GLfloat> &dst, GLfloat g, GLfloat threshold, GLfloat alpha, GLfloat beta)	//general remapping
+{
+	
+	for(int k=0; k < dst.size(); k++)
+	{
+		if( abs( dst[k] - g ) <= threshold )	//detail cases
+		{
+			dst[k] = g + sign( dst.at(k) -g ) * threshold * fdetail( abs(dst[k] - g) / threshold, alpha);
+		}
+		else		//edge cases
+		{
+			dst[k] = g + sign( dst.at(k) - g ) * (fedge( abs(dst[k] - g) - threshold, beta ) + threshold);
+		}
 	}
 }
 
@@ -714,7 +747,7 @@ void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, int aperture=7)
 			}*/
 			//Remapping
 			float g = src.at( i*height + j );
-			remapping(g, threshold, sub);
+			remapping(sub, g, threshold, 2, 0);
 			/*for(int k=0; k < sub.size(); k++)
 			{			
 				sub[k] = minf( maxf( sub.at(k), g - threshold), g + threshold );
@@ -1513,25 +1546,25 @@ void reliefHistogram(void)
 			
 			//Relief2Image(compressedH, img2);
 			/*****	bilateral filter	*****/
-			if( ReliefType == 1 )
-			{
-				base_img = cvCreateImage( cvGetSize( imgGa ), IPL_DEPTH_8U, 1);
-				detail_img = cvCreateImage( cvGetSize( imgGa ), IPL_DEPTH_8U, 1);
+			//if( ReliefType == 1 )
+			//{
+			//	base_img = cvCreateImage( cvGetSize( imgGa ), IPL_DEPTH_8U, 1);
+			//	detail_img = cvCreateImage( cvGetSize( imgGa ), IPL_DEPTH_8U, 1);
 
-				//cvConvertScaleAbs(img2, base_img, 255, 0);
-				cvConvertScaleAbs(imgGa, detail_img, 255, 0);
-				cvSmooth(detail_img, base_img, CV_BILATERAL, 0, 0, (outline_max+outline_min)/2*255, 25);
-				cvSub(detail_img, base_img, detail_img);
-				
-				//img2 = cvCreateImage( cvGetSize( img ), IPL_DEPTH_32F, 1);
-				for(int i=0; i < cvGetSize( imgGa ).width; i++)
-				{
-					for(int j=0; j < cvGetSize( imgGa ).height; j++)
-					{
-						cvSetReal2D( imgGa, j, i, cvGetReal2D(detail_img, j, i) / 255 );
-					}
-				}
-			}
+			//	//cvConvertScaleAbs(img2, base_img, 255, 0);
+			//	cvConvertScaleAbs(imgGa, detail_img, 255, 0);
+			//	cvSmooth(detail_img, base_img, CV_BILATERAL, 0, 0, (outline_max+outline_min)/2*255, 25);
+			//	cvSub(detail_img, base_img, detail_img);
+			//	
+			//	//img2 = cvCreateImage( cvGetSize( img ), IPL_DEPTH_32F, 1);
+			//	for(int i=0; i < cvGetSize( imgGa ).width; i++)
+			//	{
+			//		for(int j=0; j < cvGetSize( imgGa ).height; j++)
+			//		{
+			//			cvSetReal2D( imgGa, j, i, cvGetReal2D(detail_img, j, i) / 255 );
+			//		}
+			//	}
+			//}
 			/*****	bilateral filter	*****/
 
 			cvAdd(img, imgGa, img);
@@ -1546,10 +1579,10 @@ void reliefHistogram(void)
 			Image2Relief(imgGa, gaussianH);
 			bgFilter( gaussianH, bgMask);
 			recordMax( gaussianH );
-			//for(int i=0;i< compressedH.size(); i++)
-			//{
-			//	compressedH.at(i) /= max; //normalize
-			//}
+			for(int i=0;i< compressedH.size(); i++)
+			{
+				compressedH.at(i) /= max; //normalize
+			}
 			for(int i=0;i < maxList.size(); i++)
 			{
 				cout << "level[" << i << "]: " << maxList[i]/max << endl;
@@ -1582,7 +1615,7 @@ void reliefHistogram(void)
 		
 		glScalef(0.01*scale,0.01*scale,outputHeight);
 
-		glTranslated(-2/0.01, -2/0.01, 0.4);
+		glTranslated(-2/0.01, -2/0.01, 0.35);
 
 		
 		if(mesh2)
@@ -1809,23 +1842,23 @@ void stopMotion(int x, int y)
 
 /*----------------------------------------------------------------------*/
 
-CVector3 GetOGLPos(float pos[3])
+CVector3 GetOGLPos(GLfloat pos[3])
 {
     GLint viewport[4];
     GLdouble modelview[16];
     GLdouble projection[16];
-    GLfloat winX, winY, winZ;
+    GLdouble winX, winY, winZ;
     GLdouble posX, posY, posZ;
  
     glGetDoublev( GL_MODELVIEW_MATRIX, modelview );
     glGetDoublev( GL_PROJECTION_MATRIX, projection );
     glGetIntegerv( GL_VIEWPORT, viewport );
  
-    /*winX = (float)x;
-    winY = (float)viewport[3] - (float)y;
-    glReadPixels( x, int(winY), 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &winZ );*/
+    winX = (double)pos[0];
+    winY = (double)pos[1];
+    winZ = (double)pos[2];
  
-    gluUnProject( pos[0], pos[1], pos[2], modelview, projection, viewport, &posX, &posY, &posZ);
+    gluUnProject( winX, winY, winZ, modelview, projection, viewport, &posX, &posY, &posZ);
  
     return CVector3(posX, posY, posZ);
 }
@@ -2022,7 +2055,7 @@ void display(void)
 {
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
-	//displayfont();
+	displayfont();
 
     if (trackballMove) {
 		glPushMatrix();
