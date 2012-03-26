@@ -58,9 +58,6 @@ GLint TICK=0;
 
 GLMmodel *MODEL;
 CVector3 farPoint, far2Point, nearPoint;
-GLfloat lightPos0[] = { -15.f, 15.0f, 15.0, 1.0f };
-GLfloat lightPos1[] = { -25.f, 15.0f, 7.5, 1.0f };
-GLfloat lightPos2[] = { -27.f, 15.0f, 7.5, 1.0f };
 
 GLdouble MODELSCALE = 1.0;
 GLdouble LIGHTP = 15;
@@ -69,8 +66,13 @@ bool scene=true, relief=false, relief2=false ,mesh1=false, mesh2=false;
 float dynamicRange;
 GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =1;
 GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
-GLdouble outputHeight = 0.05;//0.075;
-GLfloat threshold = 0.04;
+GLdouble outputHeight = 0.05;//0.05;
+
+GLfloat lightPos0[] = { -15.f, 15.0f, 15.0, 1.0f };
+GLfloat lightPos1[] = { -25.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
+GLfloat lightPos2[] = { -27.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
+
+GLfloat threshold = 0.01;
 vector< vector<GLfloat> > heightList, laplaceList;
 vector<GLfloat> maxList;
 const int pyrLevel = 5;
@@ -1117,9 +1119,11 @@ void softPath(void)
 		glRotatef(reliefAngleY, 0, 1, 0);
 		glRotatef(reliefAngleZ, 0, 0, 1);
 
-		glScalef(0.01*scale,0.01*scale,outputHeight);
+		glScalef(0.01*scale, 0.01*scale, 1);
 
 		glTranslated(-2/0.01, -2/0.01, 0.4);
+
+		glScalef(1, 1, outputHeight);
 		
 		if(mesh1)
 		{
@@ -1567,13 +1571,30 @@ void reliefHistogram(void)
 			//}
 			/*****	bilateral filter	*****/
 
+			double minVal,maxVal;
+			Relief2Image(heightPyr[0], imgGa);
+			cvMinMaxLoc(imgGa, &minVal, &maxVal);
+			double val;
+			for(int i=0; i < width; i++)
+			{
+				for(int j=0; j < height; j++)
+				{					
+					val = cvGetReal2D( imgGa, j, i) * outputHeight / maxVal;
+					if( val )
+					{
+						cvSetReal2D( imgGa, j, i, val );
+					}
+				}
+			}
 			cvAdd(img, imgGa, img);
+			
 			Image2Relief(img, compressedH);
 			bgFilter( compressedH, bgMask );
 			
 			first = compressedH.begin();
 			last = compressedH.end();
 			GLfloat max = *max_element ( first, last );
+			cout << "max: " << max << endl;
 			
 			vector<GLfloat> gaussianH;
 			Image2Relief(imgGa, gaussianH);
@@ -1613,11 +1634,13 @@ void reliefHistogram(void)
 
 		
 		
-		glScalef(0.01*scale,0.01*scale,outputHeight);
+		glScalef(0.01*scale, 0.01*scale, 1);
 
-		glTranslated(-2/0.01, -2/0.01, 0.35);
-
+		glTranslated(-2/0.01, -2/0.01, 0.4);
 		
+		glScalef(1, 1, outputHeight);
+	
+
 		if(mesh2)
 		{
 			for(int i=0; i <heightPyr.at(0).size() / (winHeight - boundary*2) - 1; i++)
@@ -1699,7 +1722,7 @@ void openglPath(void)
 	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
 	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
 	//gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
-	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, nearPoint.n[2], farPoint.n[2]); 
+	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 4 - nearPoint.n[2], 4 - farPoint.n[2]); 
 	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
 
 
@@ -1730,7 +1753,18 @@ void openglPath(void)
 	OpenglLine(0, 0, 0, 0, 3, 0);
 	glColor3f(0, 0, 1);
 	OpenglLine(0, 0, 0, 0, 0, 3);*/
+	glPushMatrix();
+		/*gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
 
+		glBegin(GL_QUADS);
+			
+			glVertex3f(-2, 2, farPoint.n[2]);
+			glVertex3f(-2, -2, farPoint.n[2]);
+			glVertex3f(2, -2, farPoint.n[2]);
+			glVertex3f(2, 2, farPoint.n[2]);
+
+		glEnd();*/
+	glPopMatrix();
 	
 	glPushMatrix();
 		//multiple trackball matrix
