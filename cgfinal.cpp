@@ -71,6 +71,7 @@ GLdouble outputHeight = 0.05;//0.05;
 GLfloat lightPos0[] = { -15.f, 15.0f, 15.0, 1.0f };
 GLfloat lightPos1[] = { -25.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
 GLfloat lightPos2[] = { -27.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
+GLfloat lightPos21[] = { -29.f, -10.0f, outputHeight*81.25 + 0.4375, 1.0f };
 
 GLfloat threshold = 0.01;
 vector< vector<GLfloat> > heightList, laplaceList;
@@ -1013,12 +1014,15 @@ void softPath(void)
 			}
 			bgMask.clear();
 			
+			float *depthmap = new float[winWidth/3*winHeight];
+			glReadPixels(0, 0, winWidth/3, winHeight, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
+
 			for(int i=boundary; i<winWidth/3 - boundary; i++)
 			{
 				for(int j=boundary; j<winHeight - boundary; j++)
 				{
-					GLfloat depth;
-					glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+					GLfloat depth = depthmap[ j*winWidth/3 + i ] ;;
+					//glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
 
 					if( maxDepth < depth && depth !=1)
 					{
@@ -1289,7 +1293,7 @@ void reliefHistogram(void)
 	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
 
 	glLightfv(GL_LIGHT2, GL_POSITION, lightPos2);
-	
+	glLightfv(GL_LIGHT3, GL_POSITION, lightPos21);
 	/*glPushMatrix();
 		glTranslated(-10,15,0);
 		glutSolidSphere(1,8,8);
@@ -1570,9 +1574,10 @@ void reliefHistogram(void)
 			//	}
 			//}
 			/*****	bilateral filter	*****/
-
-			double minVal,maxVal;
 			Relief2Image(heightPyr[0], imgGa);
+			/*****	linear compression	*****/
+			/*double minVal,maxVal;
+			
 			cvMinMaxLoc(imgGa, &minVal, &maxVal);
 			double val;
 			for(int i=0; i < width; i++)
@@ -1585,7 +1590,63 @@ void reliefHistogram(void)
 						cvSetReal2D( imgGa, j, i, val );
 					}
 				}
+			}*/
+			/*****	linear compression	*****/
+
+			
+			/*****	bilateral filter	*****/
+			base_img = cvCreateImage( cvGetSize( imgGa ), IPL_DEPTH_8U, 1);
+			detail_img = cvCreateImage( cvGetSize( imgGa ), IPL_DEPTH_8U, 1);
+
+			cvConvertScaleAbs(imgGa, base_img, 255, 0);
+			cvConvertScaleAbs(imgGa, detail_img, 255, 0);
+			cvSmooth(detail_img, base_img, CV_BILATERAL, 0, 0, outline_med*255, 25);
+			cvSub(detail_img, base_img, detail_img);
+			
+			for(int i=0; i < cvGetSize( imgGa ).width; i++)
+			{
+				for(int j=0; j < cvGetSize( imgGa ).height; j++)
+				{
+					cvSetReal2D( imgGa, j, i, cvGetReal2D(detail_img, j, i) / 255 );
+				}
 			}
+
+			/*for(int i=0; i < cvGetSize( img0 ).width; i++)
+			{
+				for(int j=0; j < cvGetSize( img0 ).height; j++)
+				{
+					cvSetReal2D( img1, j, i, cvGetReal2D(base_img, j, i) / 255 );
+				}
+			}*/
+			/*****	bilateral filter	*****/
+			/*****	downsample	*****/
+			for(int i=1; i < pyrLevel; i++)
+			{
+				int width = imgPyr[i]->width;
+				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+				img2 = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+				cvSetZero(img2);
+
+				cvPyrDown(imgGa, img2);	
+				
+				imgGa = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+				cvCopy(img2, imgGa);
+			}
+			/*****	downsample	*****/
+			/*****	upsample	*****/
+			for(int i=pyrLevel - 2; i >= 0; i--)
+			{
+				int width = imgPyr[i]->width;
+				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+				img2 = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+				cvSetZero(img2);
+
+				cvPyrUp(imgGa, img2);
+				
+				imgGa = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+				cvCopy(img2, imgGa);
+			}
+			/*****	upsample	*****/
 			cvAdd(img, imgGa, img);
 			
 			Image2Relief(img, compressedH);
@@ -1722,7 +1783,7 @@ void openglPath(void)
 	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
 	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
 	//gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
-	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 4 - nearPoint.n[2], 4 - farPoint.n[2]); 
+	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
 	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
 
 
@@ -2044,12 +2105,15 @@ void display0(void)
 	{
 		glGetFloatv(GL_MODELVIEW_MATRIX, m);
 
+		float *depthmap = new float[winWidth0*winHeight0];
+		glReadPixels(0, 0, winWidth0, winHeight0, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
+		
 		for(int i=boundary; i<winWidth0 - boundary; i++)
 		{
 			for(int j=boundary; j<winHeight0 - boundary; j++)
 			{
-				GLfloat depth;
-				glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+				GLfloat depth = depthmap[j*winWidth0 + i];
+				//glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
 
 				if( maxDepthPoint[2] < depth && depth !=1)
 				{
@@ -2070,6 +2134,7 @@ void display0(void)
 
 			}
 		}
+		delete [] depthmap;
 	
 
 		farPoint = GetOGLPos(maxDepthPoint);
@@ -2102,6 +2167,7 @@ void display(void)
 	glEnable(GL_LIGHT0);
 	glDisable(GL_LIGHT1);
 	glDisable(GL_LIGHT2);
+	glDisable(GL_LIGHT3);
 	if( !scene )
 	{
 		openglPath();
@@ -2119,6 +2185,7 @@ void display(void)
 	glDisable(GL_LIGHT0);
 	glDisable(GL_LIGHT1);
 	glEnable(GL_LIGHT2);
+	glEnable(GL_LIGHT3);
 	reliefHistogram();
 
     glutSwapBuffers();
@@ -2381,7 +2448,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("asain dragon.obj");
+	MODEL = glmReadOBJ("spheres3.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
@@ -2445,8 +2512,8 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("asain dragon.obj");
-	glmUnitize(MODEL);
+	/*MODEL = glmReadOBJ("asain dragon.obj");
+	glmUnitize(MODEL);*/
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
 
@@ -2468,6 +2535,7 @@ int main(int argc, char **argv)
     glLightfv(GL_LIGHT2,GL_DIFFUSE,diffuseLight1);
     glLightfv(GL_LIGHT2,GL_SPECULAR, specular1);
     
+	glLightfv(GL_LIGHT3,GL_DIFFUSE,ambientLight1);
 
     // Enable color tracking
     glEnable(GL_COLOR_MATERIAL);

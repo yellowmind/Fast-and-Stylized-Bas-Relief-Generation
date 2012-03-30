@@ -1061,12 +1061,68 @@ void softPath(void)
 			heightList.clear();
 			vector<GLfloat> height2, upHeight, laplace;
 			heightList.push_back(heightPyr[0]);
-			IplImage *img0, *img1, *imgUP, *imgLa;
+			IplImage *img0, *img1, *imgUP, *imgLa, *base_img, *detail_img;
 
 			int width = sqrt( (float) heightPyr[0].size() );
 			//int height = sqrt( (float) height[0].size() );
 			img0 = cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);	
+			img1 = cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
 			Relief2Image(heightPyr[0], img0);
+
+			vector<GLfloat> compressedH, outline;
+			
+			for(int i=0; i < heightPyr[0].size(); i++)
+			{
+				outline.push_back(0);
+			}
+			extractOutline(heightPyr[0], outline);
+			/*for(int i=0; i < outline.size(); i++)
+			{
+				if(outline[i] == 0)
+				{
+					outline.erase( outline.begin() + i );
+					i--;
+				}
+			}*/
+			
+			vector<GLfloat>::iterator first = outline.begin();
+			vector<GLfloat>::iterator last = outline.end();
+			outline.erase( remove(first, last, 0), outline.end() );
+			first = outline.begin();
+			last = outline.end();
+			GLfloat outline_min = *min_element ( first, last);
+			GLfloat outline_max = *max_element ( first, last);
+			nth_element ( first, first + outline.size()/2, last );
+			GLfloat outline_med = outline[ outline.size()/2 ];
+			
+			/*****	bilateral filter	*****/
+			base_img = cvCreateImage( cvGetSize( img0 ), IPL_DEPTH_8U, 1);
+			detail_img = cvCreateImage( cvGetSize( img0 ), IPL_DEPTH_8U, 1);
+
+			cvConvertScaleAbs(img0, base_img, 255, 0);
+			cvConvertScaleAbs(img0, detail_img, 255, 0);
+			cvSmooth(detail_img, base_img, CV_BILATERAL, 0, 0, outline_med*255, 25);
+			cvSub(detail_img, base_img, detail_img);
+			
+			for(int i=0; i < cvGetSize( img0 ).width; i++)
+			{
+				for(int j=0; j < cvGetSize( img0 ).height; j++)
+				{
+					cvSetReal2D( img0, j, i, cvGetReal2D(detail_img, j, i) / 255 );
+				}
+			}
+
+			for(int i=0; i < cvGetSize( img0 ).width; i++)
+			{
+				for(int j=0; j < cvGetSize( img0 ).height; j++)
+				{
+					cvSetReal2D( img1, j, i, cvGetReal2D(base_img, j, i) / 255 );
+				}
+			}
+			/*****	bilateral filter	*****/
+			Image2Relief(img0, heightPyr[0]);
+			Image2Relief(img0, compressedH);
+
 			imgPyr = cvCreatePyramid(img0, pyrLevel, 0.5);
 			for(int i=0; i < pyrLevel-1; i++)
 			{
@@ -1089,7 +1145,7 @@ void softPath(void)
 			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
 			
 			//collapse the pyramid
-			vector<GLfloat> compressedH;
+			
 			/*for(int i=0;i < height[pyrLevel - 1].size(); i++)
 			{
 				compressedH->push_back( height[pyrLevel - 1].at(i) );
@@ -1118,7 +1174,7 @@ void softPath(void)
 				/*Image2Relief(img2, compressedH);
 				reliefAdd( *compressedH, laplaceList.at(i) );*/
 			}
-			Image2Relief(img, compressedH);
+			//Image2Relief(img, compressedH);
 
 			bgFilter(compressedH, bgMask);
 			
@@ -1586,17 +1642,23 @@ void reliefHistogram(void)
 			for(int i=pyrLevel - 2; i > 0; i--)
 			{
 				int width = imgPyr[i]->width;
-				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+			
 				img2 = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
 				cvSetZero(img2);
 
-				cvPyrUp(img, img2);	//upsample the smallest laplace
+				//cvPyrUp(img, img2);	//upsample the smallest laplace
 				
 				img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
-				cvCopy(img2, img);
+				//cvCopy(img2, img);
 				/*Image2Relief(img2, compressedH);
 				reliefAdd( *compressedH, laplaceList.at(i) );*/
 			}
+
+			width = sqrt( (float) heightPyr[0].size() );
+			height = sqrt( (float) heightPyr[0].size() );
+			tempImg = cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
+			Relief2Image(	heightPyr.at(0), tempImg);
+			cvSmooth(tempImg, img,  CV_GAUSSIAN, 7);
 
 			
 			Image2Relief(img, compressedH);
@@ -1608,7 +1670,7 @@ void reliefHistogram(void)
 				outline.push_back(0);
 			}
 			extractOutline(compressedH, outline);
-		/*	for(int i=0; i < outline.size(); i++)
+			/*for(int i=0; i < outline.size(); i++)
 			{
 				if(outline[i] == 0)
 				{
@@ -1637,8 +1699,8 @@ void reliefHistogram(void)
 			//reliefAdd(height2, laplaceList.at(0), upHeight);
 			Relief2Image(compressedH, img2);
 			
-			/*****	bilateral filter	*****/
-			base_img = cvCreateImage( cvGetSize( img2 ), IPL_DEPTH_8U, 1);
+			///*****	bilateral filter	*****/
+			/*base_img = cvCreateImage( cvGetSize( img2 ), IPL_DEPTH_8U, 1);
 			detail_img = cvCreateImage( cvGetSize( img2 ), IPL_DEPTH_8U, 1);
 
 			cvConvertScaleAbs(img2, base_img, 255, 0);
@@ -1652,9 +1714,9 @@ void reliefHistogram(void)
 				{
 					cvSetReal2D( img2, j, i, cvGetReal2D(detail_img, j, i) / 255 );
 				}
-			}
-			/*****	bilateral filter	*****/
-			Image2Relief(img2, compressedH);
+			}*/
+			///*****	bilateral filter	*****/
+			//Image2Relief(img2, compressedH);
 
 			Image2 =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_8U, 1);
 			showGradient("Show Thresholding Gradient", img2, Image2);
@@ -1764,7 +1826,7 @@ void openglPath(void)
     glLoadIdentity();
 	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
 	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	gluPerspective(60, (GLfloat)(winWidth*0.5)/winHeight, 0.1, 25); 
+	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
 	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
 
 
@@ -2218,7 +2280,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("asain dragon.obj");
+	MODEL = glmReadOBJ("spheres3.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
