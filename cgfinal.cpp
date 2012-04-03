@@ -93,7 +93,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-
+int method = 1;
 /*----------------------------------------------------------------------*/
 /*
 ** Draw the wireflame cube.
@@ -1252,7 +1252,7 @@ void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst)
 }
 
 //Bas-Relief
-void reliefHistogram(void)
+void BilateralDetailBase(void)
 {	
 	//Do not change, setting a basic transformation
 	glViewport(0, 0, winWidth, winHeight);
@@ -1772,6 +1772,237 @@ void reliefHistogram(void)
 	glPopMatrix();
 }
 
+void reliefHistogram(void)
+{	
+	//Do not change, setting a basic transformation
+	glViewport(0, 0, winWidth, winHeight);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+	//glOrtho(-2.0, 2.0, -2.0, 2.0, -2.0, 2.0);
+	glOrtho(0, winWidth, 0, winHeight, -2.0, 2.0);
+    
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+
+	//glColor3f(1, 0, 0);
+	//OpenglLine(winWidth/2, 0, 0, winWidth, winHeight, 0);
+
+
+	//
+	//replace the opengl function in openglPath() to sotfgl
+    //
+
+
+	//swClearZbuffer();
+
+
+
+	//view transform
+	glViewport(winWidth*2/3 + boundary, 0 + boundary, winWidth*2/3 - 2*boundary, winHeight - 2*boundary);
+
+     glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+	
+	//swOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
+	//swFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
+	gluPerspective(60, (GLfloat)(winWidth*2/3)/winHeight, 0.1, 300); 
+
+    glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
+
+	glLightfv(GL_LIGHT2, GL_POSITION, lightPos2);
+	glLightfv(GL_LIGHT3, GL_POSITION, lightPos21);
+	
+	/*glPushMatrix();
+		glTranslated(-10,15,0);
+		glutSolidSphere(1,8,8);
+	glPopMatrix();*/
+
+	
+	//world coordinate
+	glColor3f(1, 0, 0);
+	/*OpenglLine(0, 0, 0, 3, 0, 0);
+	glColor3f(0, 1, 0);
+	OpenglLine(0, 0, 0, 0, 3, 0);
+	glColor3f(0, 0, 1);
+	OpenglLine(0, 0, 0, 0, 0, 3);*/
+
+	glPushMatrix();
+		//glPolygonMode(GL_FRONT,GL_LINE);
+		//multiple trackball matrix
+		glMultMatrixd(TRACKM);
+		
+		
+		//GLfloat maxDepth=0,minDepth=1;
+		if(relief2)
+		{
+		//	disp++;
+		//	height.clear();
+		//	
+		//	for(int i=boundary; i<winWidth*0.5 - boundary; i++)
+		//	{
+		//		for(int j=boundary; j<winHeight - boundary; j++)
+		//		{
+		//			GLfloat depth;
+		//			glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+
+		//			if( maxDepth < depth && depth !=1)
+		//			{
+		//				maxDepth = depth;
+		//			}
+		//			if( minDepth > depth)
+		//			{
+		//				minDepth = depth;
+		//			}
+		//			height.push_back(depth);
+		//			
+		//		}
+		//	}
+		//	int enhance = 50;
+		//	double maxDepthPrime = compress(maxDepth*enhance, 5, 5);
+		//	double minDepthPrime = compress(minDepth*enhance, 5, 5);
+
+		//	for(int i=0; i<height.size(); i++)
+		//	{			
+		//		if ( height.at(i) == 1 )	//infinite point
+		//		{
+		//			height.at(i) = 0;
+		//		}
+		//		else
+		//		{
+		//			height.at(i) = compress(height.at(i)*enhance, 5, 5);
+		//			height.at(i) = maxDepthPrime - height.at(i);
+		//			//height.at(i) = maxDepth - height.at(i);	//transfer depth to height
+		//			height.at(i) /= (maxDepthPrime - minDepthPrime );	//normalize to [0,1]
+		//		}
+		//	}
+			//for(int i=0; i<height.size(); i++)
+			//{
+			//	if ( height.at(i) == 1 )	//infinite point
+			//	{
+			//		height.at(i) = 0;
+			//	}
+			//	else
+			//	{
+			//		height.at(i) = ( height.at(i) - minDepth ) / (maxDepth - minDepth) ;	//normalize to [0,1]
+			//		height.at(i) = 1 - height.at(i);	//transfer depth to height
+			//	}
+			//}
+			
+			equalizeHist(heightPyr[0], equalizeHeight);
+
+			float maxHeight=0, minHeight=1000;
+			for(int i=0; i < equalizeHeight.size(); i++)
+			{
+				float height = equalizeHeight.at(i);
+				if( maxHeight < height )
+				{
+					maxHeight = height;
+				}
+				if( minHeight > height && height !=0 )
+				{
+					minHeight = height;
+				}
+			}
+			float range = maxHeight - minHeight;
+			for(int i=0; i < equalizeHeight.size(); i++)
+			{
+				equalizeHeight.at(i) /= 1000;
+			}
+
+			BuildRelief(equalizeHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
+			
+			relief2 = false;
+			mesh2 = true;
+		}
+		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
+		glColor3f(0.6, 0.6, 0.6);
+		
+		glTranslated(-2.3, 0, 0);
+		
+		glRotatef(reliefAngleX, 1, 0, 0);
+		glRotatef(reliefAngleY, 0, 1, 0);
+		glRotatef(reliefAngleZ, 0, 0, 1);
+		
+		glScalef(0.01*scale, 0.01*scale, 1);
+
+		glTranslated(-2/0.01, -2/0.01, 0.4);
+		
+		glScalef(1, 1, outputHeight);
+	
+		
+		if(mesh2)
+		{
+			for(int i=0; i < equalizeHeight.size() / (winHeight - boundary*2) - 1; i++)
+			{			
+				for(int j=0; j < winHeight - boundary*2 - 1; j++)
+				{
+					glBegin(GL_TRIANGLES);
+					glNormal3dv(pThreadEqualizeNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
+					glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + j ) * 3 );
+					glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
+					glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + (j+1) ) * 3 );
+					glEnd();
+					
+					glBegin(GL_TRIANGLES);
+					glNormal3dv(pThreadEqualizeNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 )  *3 + 3);
+					glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 );
+					glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
+					glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
+					glEnd();
+				}		
+			}
+		}
+		
+		//for(int i=0; i < height.size() / (winHeight - boundary*2) - 1; i++)
+		//{
+		//	for(int j=0; j < winHeight - boundary*2 -1; j++)
+		//	{
+		//		int position = i*(winHeight-boundary*2) + j;
+		//		if( height.at(position) >= 0 )
+		//		{
+		//			i++;
+		//			i--;
+		//		}
+		//		if( height.at(position) >= 0.5 )
+		//		{
+		//			glColor3f(1.0, 1.0, 1.0);
+		//		}
+		//		
+		//		GLdouble normal[3];
+		//		GLdouble v1[3][3] =  { {i, j, height.at(position)}, {i+1, j, height.at(position+winHeight - boundary*2)}, { i, j+1, height.at(position+1)} };
+		//		
+		//		glBegin(GL_TRIANGLES);
+		//			setNormal( v1, normal );
+		//			glNormal3dv(normal);
+		//			glVertex3d( i, j, height.at(position) );
+		//			glVertex3d( i+1, j, height.at(position+winHeight - boundary*2) );
+		//			glVertex3d( i, j+1, height.at(position+1) );
+		//			
+		//		GLdouble v2[3][3] = { {i, j+1, height.at(position+1)}, {i+1, j, height.at(position+winHeight - boundary*2)}, {i+1, j+1, height.at(position+winHeight - boundary*2 + 1)} };
+		//			setNormal( v2, normal);
+		//			glNormal3dv(normal);
+		//			glVertex3d( i, j+1, height.at(position+1)  );
+		//			glVertex3d( i+1, j, height.at(position+winHeight - boundary*2) );				
+		//			glVertex3d( i+1, j+1, height.at(position+winHeight - boundary*2 + 1) );
+		//		glEnd();
+		//		//glColor3f(1.0, 0.0, 0.0);
+		//	}
+		//}
+		//swglmDraw(MODEL);
+		
+	glPopMatrix();
+
+	glPushMatrix();
+		glTranslated(0, 2, 0);
+		glMultMatrixd(TRACKM);
+
+		
+	glPopMatrix();
+}
+
 //3D Scene
 void openglPath(void)
 {
@@ -2176,17 +2407,27 @@ void display(void)
 	//we must disable the opengl's depth test, then the software depth test will work 
 	//glDisable(GL_DEPTH_TEST); 
 	//glDisable(GL_LIGHTING);
-	glDisable(GL_LIGHT0);
-	glEnable(GL_LIGHT1);
-	glDisable(GL_LIGHT2);
-	softPath();
-	//glEnable(GL_LIGHTING);
-	//glEnable(GL_DEPTH_TEST); 
+	
+		glDisable(GL_LIGHT0);
+		glEnable(GL_LIGHT1);
+		glDisable(GL_LIGHT2);
+		softPath();
+
 	glDisable(GL_LIGHT0);
 	glDisable(GL_LIGHT1);
 	glEnable(GL_LIGHT2);
 	glEnable(GL_LIGHT3);
-	reliefHistogram();
+	if( method == 1 )
+	{
+		//glEnable(GL_LIGHTING);
+		//glEnable(GL_DEPTH_TEST); 
+		
+		BilateralDetailBase();
+	}
+	else
+	{
+		reliefHistogram();
+	}
 
     glutSwapBuffers();
 }
@@ -2395,6 +2636,15 @@ void SpecialKeys(int key, int x, int y)
 			reliefAngleZ--;
 			setZeroAxis();
 			break;
+		case GLUT_KEY_F1:
+			method = 1;
+			break;
+		case GLUT_KEY_F2:
+			method = 2;
+			break;
+		case GLUT_KEY_F3:
+			method = 3;
+			break;
 	}
 }
 
@@ -2448,7 +2698,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("spheres3.obj");
+	MODEL = glmReadOBJ("spheres2.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
