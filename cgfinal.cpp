@@ -2250,7 +2250,31 @@ void reliefHistogram(void)
 		DrawRelief(equalizeHeight);
 }
 
+void displayline(void)
+{
+	glViewport(0, 0, winWidth/3, winHeight);
+	
+	//glDisable(GL_CULL_FACE);
+	
 
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+	glOrtho(0, winWidth/3, winHeight, 0, -1, 1);
+	
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+
+	glClear(GL_DEPTH_BUFFER_BIT);
+
+	glColor3f(1, 0, 0);
+
+	glBegin(GL_LINES);
+		glVertex2f(-5, -5);
+		glVertex2f(5, 5);
+	glEnd();
+
+
+}
 
 //3D Scene
 void openglPath(void)
@@ -2366,7 +2390,7 @@ void trackball_ptov(int x, int y, int width, int height, float v[3])
 }
 
 
-void mouseMotion(int x, int y)
+void mouseMotion0(int x, int y)
 {
     float curPos[3], dx, dy, dz;
 
@@ -2392,7 +2416,32 @@ void mouseMotion(int x, int y)
     glutPostRedisplay();
 }
 
-void startMotion(int x, int y)
+void mouseMotion(int x, int y)
+{
+    float curPos[3], dx, dy, dz;
+
+	if(trackingMouse)
+	{
+		dx = curPos[0] - lastPos[0];
+		dy = curPos[1] - lastPos[1];
+		dz = curPos[2] - lastPos[2];
+
+		if (dx || dy || dz) {
+			angle = 90.0F * sqrt(dx*dx + dy*dy + dz*dz);
+
+			axis[0] = lastPos[1]*curPos[2] - lastPos[2]*curPos[1];
+			axis[1] = lastPos[2]*curPos[0] - lastPos[0]*curPos[2];
+			axis[2] = lastPos[0]*curPos[1] - lastPos[1]*curPos[0];
+
+			lastPos[0] = curPos[0];
+			lastPos[1] = curPos[1];
+			lastPos[2] = curPos[2];
+		}
+	} 
+    glutPostRedisplay();
+}
+
+void startMotion0(int x, int y)
 {
     trackingMouse = true;
     redrawContinue = false;
@@ -2402,7 +2451,7 @@ void startMotion(int x, int y)
 	trackballMove=true;
 }
 
-void stopMotion(int x, int y)
+void stopMotion0(int x, int y)
 {
 	trackingMouse = false;
 
@@ -2635,6 +2684,7 @@ void display(void)
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
 	displayfont();
+	
 
     if (trackballMove) {
 		glPushMatrix();
@@ -2682,10 +2732,31 @@ void display(void)
 		reliefHistogram();
 	}
 
+	displayline();
+
     glutSwapBuffers();
 }
 
 /*----------------------------------------------------------------------*/
+
+void mouseButton0(int button, int state, int x, int y)
+{
+	if(button==GLUT_RIGHT_BUTTON) {
+		exit(0);
+	}
+
+	if(button==GLUT_LEFT_BUTTON) switch(state) 
+	{
+		case GLUT_DOWN:
+			y=winHeight-y;
+			startMotion0(x, y);
+			break;
+		case GLUT_UP:
+			y=winHeight-y;
+			stopMotion0(x, y);
+			break;
+    } 
+}
 
 void mouseButton(int button, int state, int x, int y)
 {
@@ -2697,11 +2768,11 @@ void mouseButton(int button, int state, int x, int y)
 	{
 		case GLUT_DOWN:
 			y=winHeight-y;
-			startMotion(x, y);
+			//startMotion(x, y);
 			break;
 		case GLUT_UP:
 			y=winHeight-y;
-			stopMotion(x, y);
+			//stopMotion(x, y);
 			break;
     } 
 }
@@ -2938,8 +3009,8 @@ int main(int argc, char **argv)
 
     glutDisplayFunc(display0);
     glutIdleFunc(spinCube);
-    glutMouseFunc(mouseButton);
-    glutMotionFunc(mouseMotion);
+    glutMouseFunc(mouseButton0);
+	glutMotionFunc(mouseMotion0);
 	glutKeyboardFunc(myKeys);
 	glutSpecialFunc(SpecialKeys);
 	glutTimerFunc(33, update, 0);
