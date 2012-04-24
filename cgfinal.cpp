@@ -35,7 +35,11 @@ float minf(float a, float b)
 {
     return (a < b) ? a : b;
 }
-  
+inline float round( float d )
+{
+	return floor( d + 0.5 );
+}
+
 #ifndef M_PI
 #define M_PI 3.14159
 #endif
@@ -62,7 +66,7 @@ CVector3 farPoint, far2Point, nearPoint;
 GLdouble MODELSCALE = 1.0;
 GLdouble LIGHTP = 15;
 
-bool scene=true, relief1=false, relief2=false ,mesh1=false, mesh2=false, profile1=false, profile2=false;
+bool scene=true, relief1=false, relief2=false , mesh1=false, mesh2=false, profile1=false, profile2=false;
 float dynamicRange;
 GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =1;
 GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
@@ -81,7 +85,7 @@ vector<bool> bgMask, outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
 //vector<GLfloat> height;
-vector<GLfloat> compressedH, equalizeHeight, sceneProfile, reliefProfile;
+vector<GLfloat> compressedH, referenceHeight, sceneProfile, reliefProfile;
 int boundary =20;
 int disp=0;
 
@@ -93,7 +97,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 1;
+int method = 2, reference = 0;
 /*----------------------------------------------------------------------*/
 /*
 ** Draw the wireflame cube.
@@ -882,17 +886,56 @@ double compress(double x, double alpha)
 	return c;
 }
 
+void compress(IplImage *src, float alpha=0.5)
+{
+	//IplImage *sign = cvCreateImage( cvGetSize(src), IPL_DEPTH_64F, 1);
+
+	int width =src->width;
+	int height = src->height;
+
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			double value = cvGetReal2D( src, j, i);
+			if( value == 0)
+			{
+			}
+			else if( value >0 )
+			{
+				//cvSetReal2D( sign, j, i, 1 );
+				cvSetReal2D( src, j, i, log10( value*alpha + 1 ) / alpha );
+			}
+			else
+			{
+				//cvSetReal2D( sign, j, i, -1 );
+				cvSetReal2D( src, j, i, -log10( -value*alpha + 1 ) / alpha );
+			}
+		}
+	}
+
+	/*int absMask = 0x7fffffff;
+	cvAndS(&src, cvRealScalar(*(float*)&absMask), &src, 0);*/
+	//cvConvertScale(src, src, alpha, 1);
+	//cvLog(src, src);
+	/*cvConvertScale(src, src, 1/alpha, 0);*/
+
+	//cvMul(src, sign, src, 1/alpha);
+}
+
 double compress(double x, double alpha, int n)
 {
 	double c;
 	for(int i=0; i<n; i++)
 	{
-		c = log(1+alpha*x) / alpha;
-		if(c <= 0) break;
+		c = log( 1 + alpha*abs(x) ) / alpha;
+		if(c < 0) break;
 		x = c;
 	}
 	return c;
 }
+
+
 
 void recordMax(vector<GLfloat> v)
 {
@@ -943,63 +986,14 @@ inline void DrawProfile(vector<GLfloat> src, IplImage *dst)
 {
 	for(int i=0; i < src.size()-1; i++)
 	{
-		cvLine( dst, cvPoint( i, dst->height * 0.6 * (1 - src[i]) + 1 ), cvPoint( i+1, dst->height *  0.6 * (1 - src[i+1]) +1 ), cvScalarAll(0) );
+		cvLine( dst, cvPoint( i, dst->height * 0.3 * (1 - src[i]) + 1 ), cvPoint( i+1, dst->height *  0.3 * (1 - src[i+1]) +1 ), cvScalarAll(0) );
 	}
 }
 
 //1st Laplace
-void softPath(void)
+void firstLaplace(void)
 {	
-	//Do not change, setting a basic transformation
-	glViewport(0, 0, winWidth, winHeight);
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-	//glOrtho(-2.0, 2.0, -2.0, 2.0, -2.0, 2.0);
-	glOrtho(0, winWidth, 0, winHeight, -2.0, 2.0);
-    
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
-
-	//glColor3f(1, 0, 0);
-	//OpenglLine(winWidth/2, 0, 0, winWidth, winHeight, 0);
-
-
-	//
-	//replace the opengl function in openglPath() to sotfgl
-    //
-
-
-	//swClearZbuffer();
-
-
-
-	//view transform
-	glViewport(winWidth/3 + boundary, 0 + boundary, winWidth/3 - 2*boundary, winHeight - 2*boundary);
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
 	
-	//swOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	//swFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 300); 
-
-    glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
-	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
-
-	glLightfv(GL_LIGHT0, GL_POSITION, lightPos0);
-	glLightfv(GL_LIGHT1, GL_POSITION, lightPos1);
-	
-	
-	/*glPushMatrix();
-		glTranslated(-10,15,0);
-		glutSolidSphere(1,8,8);
-	glPopMatrix();*/
-
-	
-	//world coordinate
-	glColor3f(1, 0, 0);
 	/*OpenglLine(0, 0, 0, 3, 0, 0);
 	glColor3f(0, 1, 0);
 	OpenglLine(0, 0, 0, 0, 3, 0);
@@ -1120,9 +1114,9 @@ void softPath(void)
 			//		height.at(i) = 1 - height.at(i);	//transfer depth to height
 			//	}
 			//}
-			BuildRelief(laplace, pThreadRelief, pThreadNormal);
-			mesh1 = true;
-			relief1 = false;
+			//BuildRelief(laplace, pThreadRelief, pThreadNormal);
+			//mesh1 = true;
+			//relief1 = false;
 			profile1 = true;
 		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
@@ -1155,7 +1149,7 @@ void softPath(void)
 						{			
 							sceneProfile.push_back( (heightPyr[0][199 + i*height] + heightPyr[0][200 + i*height]) / 2 );
 							
-							for(int j=0; j < height - 1; j++)
+							/*for(int j=0; j < height - 1; j++)
 							{
 								glBegin(GL_TRIANGLES);
 								glNormal3dv(pThreadNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
@@ -1170,7 +1164,7 @@ void softPath(void)
 								glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
 								glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
 								glEnd();
-							}
+							}*/
 						}
 
 						IplImage *profileImg = cvCreateImage( cvSize( width, height ), IPL_DEPTH_8U, 1);
@@ -1187,7 +1181,7 @@ void softPath(void)
 						{		
 							for(int j=0; j < height - 1; j++)
 							{
-								glBegin(GL_TRIANGLES);
+								/*glBegin(GL_TRIANGLES);
 								glNormal3dv(pThreadNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
 								glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + j ) * 3 );
 								glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
@@ -1199,7 +1193,7 @@ void softPath(void)
 								glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 );
 								glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
 								glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
-								glEnd();
+								glEnd();*/
 							}
 						}
 					}
@@ -1253,190 +1247,54 @@ void softPath(void)
 	glPopMatrix();
 }
 
-void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst)
-{	
-	int hist[1000+1];
-	for(int i=0; i<= 1000; i++)
-	{
-		hist[i] =0;
-	}
-	int srcHeight = sqrt( (float)src.size() );
-	for(int i=0; i< srcHeight; i++)
-	{
-		for(int j=0; j< srcHeight; j++)
-		{
-			
-			hist [ (int) (src.at( i*srcHeight + j)  *1000) ] +=1;		
-		}
-	}
-	
-	double sum[1000+1];
-	
-	int number =  src.size() - hist[0];
-	for(int i=1; i < 1000+1; i++)
-	{
-		if( i == 1 )
-		{
-			sum[i] =  hist[i] * (1000 - 1) /  number;
-			//cout << "Sum " << sum[i] << std::endl;
-			//sum2[i] =  cvGetReal1D(lHist1->bins, i);
-		}
-		else
-		{
-			sum[i] = sum[i-1] + (double)( hist[i] * (1000 - 1) ) / number;
-			//sum2[i] = sum2[i-1] + cvGetReal1D(lHist1->bins, i);
-		}
-	}
-	dst.clear();
-	for(int i=0; i< srcHeight; i++)
-	{
-		for(int j=0; j< srcHeight; j++)
-		{		
-			if(src.at( i*srcHeight + j) == 0)
-			{
-				dst.push_back(0);
-			}
-			else
-			{
-				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
-			}
-		}
-	}
-		
-}
-
-
-
-void DrawRelief(vector<GLfloat> src)
+void partition2(void)
 {
-		glColor3f(0.6, 0.6, 0.6);
-		
-		glTranslated(-2.3, 0, 0);
-		
-		glRotatef(reliefAngleX, 1, 0, 0);
-		glRotatef(reliefAngleY, 0, 1, 0);
-		glRotatef(reliefAngleZ, 0, 0, 1);
-		
-		glScalef(0.01*scale, 0.01*scale, 1);
+	glDisable(GL_LIGHT0);
+	glEnable(GL_LIGHT1);
+	glDisable(GL_LIGHT2);
+	
+	glViewport(0, 0, winWidth, winHeight);
 
-		glTranslated(-2/0.01, -2/0.01, 0.4);
-		
-		glScalef(1, 1, outputHeight);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	//glOrtho(-2.0, 2.0, -2.0, 2.0, -2.0, 2.0);
+	glOrtho(0, winWidth, 0, winHeight, -2.0, 2.0);
+    
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+	glViewport(winWidth/3 + boundary, 0 + boundary, winWidth/3 - 2*boundary, winHeight - 2*boundary);
 
-		if( winHeight || winWidth )
-		{
-			int height = winHeight - boundary*2;
-			int width = src.size() / height;
-			if(mesh2)
-			{	
-				if( profile2 )
-				{
-					reliefProfile.clear();
-					for(int i=0; i < width - 1; i++)
-					{			
-						reliefProfile.push_back( (src[199 + i*height] + src[200 + i*height]) / 2 );
-						
-						for(int j=0; j < height - 1; j++)
-						{
-							glBegin(GL_TRIANGLES);
-							glNormal3dv(pThreadEqualizeNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
-							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + j ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + (j+1) ) * 3 );
-							glEnd();
-							
-							glBegin(GL_TRIANGLES);
-							glNormal3dv(pThreadEqualizeNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 )  *3 + 3);
-							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
-							glEnd();
-						}		
-					}
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+	
+	//swOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
+	//swFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
+	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 300); 
 
-					IplImage *profileImg = cvCreateImage( cvSize( width, height ), IPL_DEPTH_8U, 1);
-					DrawProfile(reliefProfile, profileImg);
-					cvNamedWindow("Relief Profile", 1);
-					cvShowImage("Relief Profile", profileImg);
+    glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
 
-					profile2 = false;
-				}
-				
-				else
-				{
-					for(int i=0; i < width - 1; i++)
-					{			
-						for(int j=0; j < height - 1; j++)
-						{
-							glBegin(GL_TRIANGLES);
-							glNormal3dv(pThreadEqualizeNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
-							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + j ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + (j+1) ) * 3 );
-							glEnd();
-							
-							glBegin(GL_TRIANGLES);
-							glNormal3dv(pThreadEqualizeNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 )  *3 + 3);
-							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
-							glEnd();
-						}		
-					}
-				}
-			}
-		}
-		
-		//for(int i=0; i < height.size() / (winHeight - boundary*2) - 1; i++)
-		//{
-		//	for(int j=0; j < winHeight - boundary*2 -1; j++)
-		//	{
-		//		int position = i*(winHeight-boundary*2) + j;
-		//		if( height.at(position) >= 0 )
-		//		{
-		//			i++;
-		//			i--;
-		//		}
-		//		if( height.at(position) >= 0.5 )
-		//		{
-		//			glColor3f(1.0, 1.0, 1.0);
-		//		}
-		//		
-		//		GLdouble normal[3];
-		//		GLdouble v1[3][3] =  { {i, j, height.at(position)}, {i+1, j, height.at(position+winHeight - boundary*2)}, { i, j+1, height.at(position+1)} };
-		//		
-		//		glBegin(GL_TRIANGLES);
-		//			setNormal( v1, normal );
-		//			glNormal3dv(normal);
-		//			glVertex3d( i, j, height.at(position) );
-		//			glVertex3d( i+1, j, height.at(position+winHeight - boundary*2) );
-		//			glVertex3d( i, j+1, height.at(position+1) );
-		//			
-		//		GLdouble v2[3][3] = { {i, j+1, height.at(position+1)}, {i+1, j, height.at(position+winHeight - boundary*2)}, {i+1, j+1, height.at(position+winHeight - boundary*2 + 1)} };
-		//			setNormal( v2, normal);
-		//			glNormal3dv(normal);
-		//			glVertex3d( i, j+1, height.at(position+1)  );
-		//			glVertex3d( i+1, j, height.at(position+winHeight - boundary*2) );				
-		//			glVertex3d( i+1, j+1, height.at(position+winHeight - boundary*2 + 1) );
-		//		glEnd();
-		//		//glColor3f(1.0, 0.0, 0.0);
-		//	}
-		//}
-		//swglmDraw(MODEL);
-		
-	glPopMatrix();
+	glLightfv(GL_LIGHT0, GL_POSITION, lightPos0);
+	glLightfv(GL_LIGHT1, GL_POSITION, lightPos1);
+	
+	
+	/*glPushMatrix();
+		glTranslated(-10,15,0);
+		glutSolidSphere(1,8,8);
+	glPopMatrix();*/
 
-	glPushMatrix();
-		glTranslated(0, 2, 0);
-		glMultMatrixd(TRACKM);
-
-		
-	glPopMatrix();
+	
+	//world coordinate
+	glColor3f(1, 0, 0);
 }
 
-//Bas-Relief
-void BilateralDetailBase(void)
-{	
+void partition3(void)
+{
+	glDisable(GL_LIGHT0);
+	glDisable(GL_LIGHT1);
+	glEnable(GL_LIGHT2);
+	glEnable(GL_LIGHT3);
 	//Do not change, setting a basic transformation
 	glViewport(0, 0, winWidth, winHeight);
 
@@ -1485,20 +1343,282 @@ void BilateralDetailBase(void)
 	
 	//world coordinate
 	glColor3f(1, 0, 0);
+}
+
+void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=NULL, int aperture=33)
+{	
+	vector<GLfloat> amount;
+	if( gradient != NULL)
+	{		
+		compress(gradient);
+		Image2Relief(gradient, amount);
+	}
+
+	int hist[1000+1];
+	for(int i=0; i<= 1000; i++)
+	{
+		hist[i] =0;
+	}
+	int srcHeight = sqrt( (float)src.size() );
+	for(int i=0; i< srcHeight; i++)
+	{
+		for(int j=0; j< srcHeight; j++)
+		{
+			if(src.at( i*srcHeight + j) == 0)
+			{
+				dst.push_back(0);
+			}
+
+			else
+			{
+			
+				int ext = (aperture-1) / 2;
+				
+				if(i >= ext  && j >= ext && i+ext < srcHeight && j+ext < srcHeight)
+				{
+					for(int p=-ext; p <=ext; p++)
+					{
+						for(int q=-ext; q <=ext; q++)
+						{
+							if( gradient == NULL)
+							{
+								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *1000) ] += 1;
+							}
+							else
+							{
+								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *1000) ] += round( amount[ (i+p)*srcHeight + j+q ] );
+							}
+						}
+					}
+				}
+
+				else	//boundary issues
+				{
+					int extU = -ext,extD = ext,extL = -ext,extR = ext;
+					if( ext > j)		extL = -j;
+					if( ext > i)		extU = -i;
+					if( j+ext >= srcHeight)		extR = srcHeight - 1 - j;
+					if( i+ext >= srcHeight)		extD = srcHeight - 1 - i;
+
+					//int window[ (extR - extL + 1) * (extD - extU +1) ];
+					
+					for(int p=extU; p <= extD; p++)
+					{
+						for(int q=extL; q <= extR; q++)
+						{
+							if( gradient == NULL)
+							{
+								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *1000) ] += 1;
+							}
+							else
+							{
+								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *1000) ] += round( amount[ (i+p)*srcHeight + j+q ] );
+							}
+						}
+					}
+				}
+
+				double sum[1000+1];
+		
+				int number =  0;
+				for(int bin=1; bin < 1000+1; bin++)
+				{
+					number += hist[bin];
+				}
+				for(int bin=1; bin < 1000+1; bin++)
+				{
+					if( bin == 1 )
+					{
+						sum[bin] =  hist[bin] * (1000 - 1) /  number;
+						//cout << "Sum " << sum[i] << std::endl;
+						//sum2[i] =  cvGetReal1D(lHist1->bins, i);
+					}
+					else
+					{
+						sum[bin] = sum[bin-1] + (double)( hist[bin] * (1000 - 1) ) / number;
+						//sum2[i] = sum2[i-1] + cvGetReal1D(lHist1->bins, i);
+					}
+				}
+
+				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
+			}
+
+			//dst.clear();
+			/*if(src.at( i*srcHeight + j) == 0)
+			{
+				dst.push_back(0);
+			}
+			else
+			{
+				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
+			}*/
+		}
+	}
+	
+	
+	
+	/*for(int i=0; i< srcHeight; i++)
+	{
+		for(int j=0; j< srcHeight; j++)
+		{		
+			if(src.at( i*srcHeight + j) == 0)
+			{
+				dst.push_back(0);
+			}
+			else
+			{
+				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
+			}
+		}
+	}*/
+		
+}
+
+
+
+void DrawRelief(vector<GLfloat> src, GLdouble *pThreadRelief, GLdouble *pThreadNormal)
+{
+		glColor3f(0.6, 0.6, 0.6);
+		
+		//glTranslated(-0.2, 0, 0);
+		
+		glRotatef(reliefAngleX, 1, 0, 0);
+		glRotatef(reliefAngleY, 0, 1, 0);
+		glRotatef(reliefAngleZ, 0, 0, 1);
+		
+		glScalef(0.01*scale, 0.01*scale, 1);
+
+		glTranslated(-2/0.01, -2/0.01, 0.4);
+		
+		glScalef(1, 1, outputHeight);
+
+		if( winHeight || winWidth )
+		{
+			int height = winHeight - boundary*2;
+			int width = src.size() / height;
+			/*if(mesh)
+			{	*/
+				if( profile2 )
+				{
+					reliefProfile.clear();
+					for(int i=0; i < width - 1; i++)
+					{			
+						reliefProfile.push_back( (src[199 + i*height] + src[200 + i*height]) / 2 );
+						
+						for(int j=0; j < height - 1; j++)
+						{
+							glBegin(GL_TRIANGLES);
+							glNormal3dv(pThreadNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + (j+1) ) * 3 );
+							glEnd();
+							
+							glBegin(GL_TRIANGLES);
+							glNormal3dv(pThreadNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 )  *3 + 3);
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
+							glEnd();
+						}		
+					}
+
+					IplImage *profileImg = cvCreateImage( cvSize( width, height*2 ), IPL_DEPTH_8U, 1);
+					DrawProfile(reliefProfile, profileImg);
+					cvNamedWindow("Relief Profile", 1);
+					cvShowImage("Relief Profile", profileImg);
+
+					profile2 = false;
+				}
+				
+				else
+				{
+					for(int i=0; i < width - 1; i++)
+					{			
+						for(int j=0; j < height - 1; j++)
+						{
+							glBegin(GL_TRIANGLES);
+							glNormal3dv(pThreadEqualizeNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
+							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + j ) * 3 );
+							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
+							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + (j+1) ) * 3 );
+							glEnd();
+							
+							glBegin(GL_TRIANGLES);
+							glNormal3dv(pThreadEqualizeNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 )  *3 + 3);
+							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 );
+							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
+							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
+							glEnd();
+						}		
+					}
+				}
+			//}
+		}
+		
+		//for(int i=0; i < height.size() / (winHeight - boundary*2) - 1; i++)
+		//{
+		//	for(int j=0; j < winHeight - boundary*2 -1; j++)
+		//	{
+		//		int position = i*(winHeight-boundary*2) + j;
+		//		if( height.at(position) >= 0 )
+		//		{
+		//			i++;
+		//			i--;
+		//		}
+		//		if( height.at(position) >= 0.5 )
+		//		{
+		//			glColor3f(1.0, 1.0, 1.0);
+		//		}
+		//		
+		//		GLdouble normal[3];
+		//		GLdouble v1[3][3] =  { {i, j, height.at(position)}, {i+1, j, height.at(position+winHeight - boundary*2)}, { i, j+1, height.at(position+1)} };
+		//		
+		//		glBegin(GL_TRIANGLES);
+		//			setNormal( v1, normal );
+		//			glNormal3dv(normal);
+		//			glVertex3d( i, j, height.at(position) );
+		//			glVertex3d( i+1, j, height.at(position+winHeight - boundary*2) );
+		//			glVertex3d( i, j+1, height.at(position+1) );
+		//			
+		//		GLdouble v2[3][3] = { {i, j+1, height.at(position+1)}, {i+1, j, height.at(position+winHeight - boundary*2)}, {i+1, j+1, height.at(position+winHeight - boundary*2 + 1)} };
+		//			setNormal( v2, normal);
+		//			glNormal3dv(normal);
+		//			glVertex3d( i, j+1, height.at(position+1)  );
+		//			glVertex3d( i+1, j, height.at(position+winHeight - boundary*2) );				
+		//			glVertex3d( i+1, j+1, height.at(position+winHeight - boundary*2 + 1) );
+		//		glEnd();
+		//		//glColor3f(1.0, 0.0, 0.0);
+		//	}
+		//}
+		//swglmDraw(MODEL);
+
+	glPushMatrix();
+		glTranslated(0, 2, 0);
+		glMultMatrixd(TRACKM);
+
+		
+	glPopMatrix();
+}
+
+//Bas-Relief
+void BilateralDetailBase(void)
+{	
+	
 	/*OpenglLine(0, 0, 0, 3, 0, 0);
 	glColor3f(0, 1, 0);
 	OpenglLine(0, 0, 0, 0, 3, 0);
 	glColor3f(0, 0, 1);
 	OpenglLine(0, 0, 0, 0, 0, 3);*/
 
-	glPushMatrix();
+	//glPushMatrix();
 		//glPolygonMode(GL_FRONT,GL_LINE);
 		//multiple trackball matrix
-		glMultMatrixd(TRACKM);
+		//glMultMatrixd(TRACKM);
 		
 		
 		//GLfloat maxDepth=0,minDepth=1;
-		if(relief2)
+		if(relief1)
 		{
 		//	disp++;
 		//	height.clear();
@@ -1553,12 +1673,12 @@ void BilateralDetailBase(void)
 			//	}
 			//}
 			
-			//equalizeHist(height[0], equalizeHeight);
+			//equalizeHist(height[0], referenceHeight);
 
 			/*float maxHeight=0, minHeight=1000;
-			for(int i=0; i < equalizeHeight.at(0).size(); i++)
+			for(int i=0; i < referenceHeight.at(0).size(); i++)
 			{
-				float height = equalizeHeight.at(i);
+				float height = referenceHeight.at(i);
 				if( maxHeight < height )
 				{
 					maxHeight = height;
@@ -1569,12 +1689,12 @@ void BilateralDetailBase(void)
 				}
 			}
 			float range = maxHeight - minHeight;
-			for(int i=0; i < equalizeHeight.size(); i++)
+			for(int i=0; i < referenceHeight.size(); i++)
 			{
-				equalizeHeight.at(i) /= 1000;
+				referenceHeight.at(i) /= 1000;
 			}*/
 
-			//BuildRelief(equalizeHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
+			//BuildRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
 			
 			//heightList.push_back(height);
 			vector<GLfloat> height2, upHeight, laplace[pyrLevel - 1];
@@ -1862,79 +1982,36 @@ void BilateralDetailBase(void)
 			//upHeight.clear();
 			//reliefAdd(height2, laplaceList.at(0), upHeight);
 
-			BuildRelief(compressedH, pThreadEqualizeRelief, pThreadEqualizeNormal);
+			BuildRelief(compressedH, pThreadRelief, pThreadNormal);
 			
-			mesh2 = true;
-			relief2 = false;
+			mesh1 = true;
+			relief1 = false;
 			profile2 = true;
 		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
-		DrawRelief(compressedH);
+		if(mesh1)
+		{
+			DrawRelief(compressedH, pThreadRelief, pThreadNormal);
+		}
 }
 
 void linearCompressedBase(void)
 {
-	glViewport(0, 0, winWidth, winHeight);
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-	//glOrtho(-2.0, 2.0, -2.0, 2.0, -2.0, 2.0);
-	glOrtho(0, winWidth, 0, winHeight, -2.0, 2.0);
-    
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
-
-	//glColor3f(1, 0, 0);
-	//OpenglLine(winWidth/2, 0, 0, winWidth, winHeight, 0);
-
-
-	//
-	//replace the opengl function in openglPath() to sotfgl
-    //
-
-
-	//swClearZbuffer();
-
-
-
-	//view transform
-	glViewport(winWidth*2/3 + boundary, 0 + boundary, winWidth*2/3 - 2*boundary, winHeight - 2*boundary);
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
 	
-	//swOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	//swFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	gluPerspective(60, (GLfloat)(winWidth*2/3)/winHeight, 0.1, 300); 
-
-    glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
-	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
-
-	glLightfv(GL_LIGHT2, GL_POSITION, lightPos2);
-	
-	/*glPushMatrix();
-		glTranslated(-10,15,0);
-		glutSolidSphere(1,8,8);
-	glPopMatrix();*/
-
-	
-	//world coordinate
-	glColor3f(1, 0, 0);
 	/*OpenglLine(0, 0, 0, 3, 0, 0);
 	glColor3f(0, 1, 0);
 	OpenglLine(0, 0, 0, 0, 3, 0);
 	glColor3f(0, 0, 1);
 	OpenglLine(0, 0, 0, 0, 0, 3);*/
 
-	glPushMatrix();
+	//glPushMatrix();
 		//glPolygonMode(GL_FRONT,GL_LINE);
 		//multiple trackball matrix
-		glMultMatrixd(TRACKM);
+		//glMultMatrixd(TRACKM);
 		
 		
 		//GLfloat maxDepth=0,minDepth=1;
-		if(relief2)
+		if(relief1)
 		{
 			vector<GLfloat> height2, upHeight, laplace[pyrLevel - 1];
 			IplImage *img, *img2, *imgGa, *imgLa, *bgImg, *base_img, *detail_img;
@@ -2089,83 +2166,43 @@ void linearCompressedBase(void)
 				cout << "level[" << i << "]: " << maxList[i]/max << endl;
 			}
 
-			BuildRelief(compressedH, pThreadEqualizeRelief, pThreadEqualizeNormal);
+			BuildRelief(compressedH, pThreadRelief, pThreadNormal);
 			
-			mesh2 = true;
-			relief2 = false;
+			mesh1 = true;
+			relief1 = false;
 			profile2 = true;
 		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
-		DrawRelief(compressedH);
+		if(mesh1)
+		{
+			DrawRelief(compressedH, pThreadRelief, pThreadNormal);
+		}
 }
 
-void reliefHistogram(void)
+void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 {	
-	//Do not change, setting a basic transformation
-	glViewport(0, 0, winWidth, winHeight);
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-	//glOrtho(-2.0, 2.0, -2.0, 2.0, -2.0, 2.0);
-	glOrtho(0, winWidth, 0, winHeight, -2.0, 2.0);
-    
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
-
-	//glColor3f(1, 0, 0);
-	//OpenglLine(winWidth/2, 0, 0, winWidth, winHeight, 0);
-
-
-	//
-	//replace the opengl function in openglPath() to sotfgl
-    //
-
-
-	//swClearZbuffer();
-
-
-
-	//view transform
-	glViewport(winWidth*2/3 + boundary, 0 + boundary, winWidth*2/3 - 2*boundary, winHeight - 2*boundary);
-
-     glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
 	
-	//swOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	//swFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	gluPerspective(60, (GLfloat)(winWidth*2/3)/winHeight, 0.1, 300); 
-
-    glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
-	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
-
-	glLightfv(GL_LIGHT2, GL_POSITION, lightPos2);
-	glLightfv(GL_LIGHT3, GL_POSITION, lightPos21);
-	
-	/*glPushMatrix();
-		glTranslated(-10,15,0);
-		glutSolidSphere(1,8,8);
-	glPopMatrix();*/
-
-	
-	//world coordinate
-	glColor3f(1, 0, 0);
 	/*OpenglLine(0, 0, 0, 3, 0, 0);
 	glColor3f(0, 1, 0);
 	OpenglLine(0, 0, 0, 0, 3, 0);
 	glColor3f(0, 0, 1);
 	OpenglLine(0, 0, 0, 0, 0, 3);*/
-
-	glPushMatrix();
-		//glPolygonMode(GL_FRONT,GL_LINE);
-		//multiple trackball matrix
-		glMultMatrixd(TRACKM);
 		
 		
 		//GLfloat maxDepth=0,minDepth=1;
 		float maxHeight=0, minHeight=1000;
-		if(relief2)
-		{
+		/*if(relief2)
+		{*/
+			IplImage *gradX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+			IplImage *gradY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
+			cvConvertScale(gradientX, gradX, 1, 0);
+			cvConvertScale(gradientY, gradY, 1, 0);
+			cvPow(gradX, gradX, 2);
+			cvPow(gradY, gradY, 2);
+
+			IplImage *gradient = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+			cvAdd(gradX, gradY, gradient);
+			cvPow(gradient, gradient, 0.5);
 		//	disp++;
 		//	height.clear();
 		//	
@@ -2218,13 +2255,13 @@ void reliefHistogram(void)
 			//		height.at(i) = 1 - height.at(i);	//transfer depth to height
 			//	}
 			//}
-			
-			equalizeHist(heightPyr[0], equalizeHeight);
+			referenceHeight.clear();
+			equalizeHist(heightPyr[0], referenceHeight, gradient);
 
 			
-			for(int i=0; i < equalizeHeight.size(); i++)
+			for(int i=0; i < referenceHeight.size(); i++)
 			{
-				float height = equalizeHeight.at(i);
+				float height = referenceHeight.at(i);
 				if( maxHeight < height )
 				{
 					maxHeight = height;
@@ -2235,27 +2272,143 @@ void reliefHistogram(void)
 				}
 			}
 			float range = maxHeight - minHeight;
-			for(int i=0; i < equalizeHeight.size(); i++)
+			for(int i=0; i < referenceHeight.size(); i++)
 			{
-				equalizeHeight.at(i) /= 1000;
+				referenceHeight.at(i) /= 1000;
 			}
 
-			BuildRelief(equalizeHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
+			BuildRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
 			
 			relief2 = false;
 			mesh2 = true;
 			profile2 = true;
-		}
+		//}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
-		DrawRelief(equalizeHeight);
+}
+
+void correct(IplImage *GradX, IplImage *GradY, double w=1.8, double e=0.001)
+{
+	double max_err, err;
+	int nthreads, tid, i, chunk;
+	chunk = 100;
+
+	int m = cvGetSize(GradX).width;
+	int n = cvGetSize(GradX).height;
+	do {
+		max_err = 0;
+
+		//#pragma omp parallel for /*shared(GradX,GradY,nthreads,chunk)*/
+		for(int count=0; count<(n-1)*(m-1); count++)
+		{
+					int i = count/(m-1);
+					int j = count%(m-1);
+					//cout << "c1" << std::endl;
+					err = cvGetReal2D(GradX, i, j) + cvGetReal2D(GradY, i, j+1) - cvGetReal2D(GradY, i, j) - cvGetReal2D(GradX, i+1, j);
+					if( abs(err) > max_err )
+					{
+						max_err = abs(err);
+					}
+
+					double s = 0.25 * err * w;
+					//cout << "c2" << std::endl;
+					cvSetReal2D( GradX, i, j, -s + cvGetReal2D(GradX, i, j) );
+					cvSetReal2D( GradY, i, j+1, -s + cvGetReal2D(GradY, i, j+1) );
+					cvSetReal2D( GradY, i, j, s + cvGetReal2D(GradY, i, j) );
+					cvSetReal2D( GradX, i+1, j, s + cvGetReal2D(GradX, i+1, j) );
+				
+		}
+	} while(max_err >= e);
+}
+
+void intergrate(IplImage *GradX, IplImage *GradY, IplImage *dst)
+{
+	cvSetReal2D(dst, 0, 0, 0);
+	
+	int m = cvGetSize(dst).width;
+	int n = cvGetSize(dst).height;
+	double value;
+	for(int i=0; i<n; i++)
+	{
+		//cout << "i1" << std::endl;
+		if(i > 0)
+		{
+			value = cvGetReal2D(dst, i-1, 0) + cvGetReal2D(GradY, i-1, 0) ;
+			//cout << value << std::endl;
+			cvSetReal2D( dst, i, 0, cvGetReal2D(dst, i-1, 0) + cvGetReal2D(GradY, i-1, 0) );
+		}
+		//cout << "i2" << std::endl;
+		for(int j=1; j<m; j++)
+		{
+			value = cvGetReal2D(dst, i, j-1) + cvGetReal2D(GradX, i, j-1);
+			//cout << value << std::endl;
+			cvSetReal2D( dst, i, j, cvGetReal2D(dst, i, j-1) + cvGetReal2D(GradX, i, j-1) );
+		}
+	}
+}
+
+void gradientCorrection(IplImage *gradientX, IplImage *gradientY)
+{	
+		//vector<GLfloat> h;
+		/*if(relief2)
+		{*/
+
+			/*int width = sqrt( (float) heightPyr[0].size() );
+			IplImage *img= cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
+			Relief2Image(heightPyr[0], img);
+
+			IplImage *Image =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_8U, 1);
+			cvConvertScaleAbs(img, Image, 255, 0);
+
+			IplImage *gradientX =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_16S, 1);
+			IplImage *gradientY =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_16S, 1);
+			cvSobel( Image, gradientX, 1, 0);
+			cvSobel( Image, gradientY, 0, 1);*/
+
+			IplImage *gradX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+			IplImage *gradY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
+			cvConvertScale(gradientX, gradX, 1, 0);
+			cvConvertScale(gradientY, gradY, 1, 0);
+			//Image2Relief(gradX, h);
+			compress(gradX);
+			compress(gradY);
+
+			IplImage *intergration = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+
+			
+			//Image2Relief(gradX, h);
+			correct(gradX, gradY, 1.8);
+			//Image2Relief(gradX, h);
+			intergrate(gradX, gradY, intergration);
+			//Image2Relief(intergration, h);
+
+			IplImage *height = cvCreateImage( cvGetSize(intergration), IPL_DEPTH_32F, 1);
+			//cvConvertScale(intergration, height, 1/255, 0);
+			
+			Image2Relief(intergration, referenceHeight);
+
+			vector<GLfloat>::iterator first = referenceHeight.begin();
+			vector<GLfloat>::iterator last = referenceHeight.end();
+			GLfloat max = *max_element ( first, last );
+			for(int i=0; i< referenceHeight.size(); i++)
+			{
+				referenceHeight.at(i) /= max; //normalize
+			}
+
+			BuildRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
+			
+			relief2 = false;
+			mesh2 = true;
+			profile2 = true;
+		/*}*/
+		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
 }
 
 void displayline(void)
 {
 	glViewport(0, 0, winWidth/3, winHeight);
 	
-	//glDisable(GL_CULL_FACE);
-	
+	/*glDisable(GL_CULL_FACE);
+	glClear(GL_DEPTH_BUFFER_BIT);*/
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -2264,16 +2417,12 @@ void displayline(void)
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
-	glClear(GL_DEPTH_BUFFER_BIT);
-
 	glColor3f(1, 0, 0);
 
 	glBegin(GL_LINES);
 		glVertex2f(-5, -5);
-		glVertex2f(5, 5);
+		glVertex2f(winWidth/3, winHeight);
 	glEnd();
-
-
 }
 
 //3D Scene
@@ -2508,7 +2657,7 @@ void displayfont()
 		glutBitmapCharacter(font, mss02[i]);
 	}
 
-	char mss11[30]="1st Laplace";
+	char mss11[30]="Relief";
 	
 	glWindowPos2i(10+(winWidth/3), winHeight-15);    //set font start position
 	for(unsigned int i=0; i<strlen(mss11); i++) {
@@ -2525,7 +2674,7 @@ void displayfont()
 		}
 	}
 	
-	char mss21[30]="Bas-Relief";
+	char mss21[30]="Referred Relief";
 	
 	glWindowPos2i(10+(winWidth*2/3), winHeight-15);    //set font start position
 	for(unsigned int i=0; i<strlen(mss21); i++) {
@@ -2684,9 +2833,10 @@ void display(void)
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
 	displayfont();
-	
+	//displayline();
 
-    if (trackballMove) {
+    /*****     Partition 1     *****/
+	if (trackballMove) {
 		glPushMatrix();
 			glLoadMatrixd(TRACKM);
 			glRotatef(angle, axis[0], axis[1], axis[2]);
@@ -2702,37 +2852,77 @@ void display(void)
 	{
 		openglPath();
 	}
-
+	/*****     Partition 1     *****/
 	//we must disable the opengl's depth test, then the software depth test will work 
 	//glDisable(GL_DEPTH_TEST); 
 	//glDisable(GL_LIGHTING);
 	
-		glDisable(GL_LIGHT0);
-		glEnable(GL_LIGHT1);
-		glDisable(GL_LIGHT2);
-		softPath();
+	/*****     Partition 2     *****/
+	partition2();
+	firstLaplace();
+	
+	glPushMatrix();
+		glMultMatrixd(TRACKM);
+		glTranslated(-0.2, 0, 0);
 
-	glDisable(GL_LIGHT0);
-	glDisable(GL_LIGHT1);
-	glEnable(GL_LIGHT2);
-	glEnable(GL_LIGHT3);
-	if( method == 1 )		//F1
-	{
-		//glEnable(GL_LIGHTING);
-		//glEnable(GL_DEPTH_TEST); 
-		
-		BilateralDetailBase();
-	}
-	if( method == 2 )		//F2
-	{
-		linearCompressedBase();
-	}
-	else	//F3
-	{
-		reliefHistogram();
-	}
+		if( method == 1 )		//F1
+		{	
+			BilateralDetailBase();
+		}
+		else if( method == 2 )		//F2
+		{
+			linearCompressedBase();
+		}
+		else	//F3
+		{
+			relief1 = false;
+		}
 
-	displayline();
+	glPopMatrix();
+	/*****     Partition 2     *****/
+
+	/*****     Partition 3     *****/
+	partition3();
+
+	glPushMatrix();
+		glMultMatrixd(TRACKM);
+		glTranslated(-2.3, 0, 0);
+
+		if(relief2)
+		{
+			int width = sqrt( (float) heightPyr[0].size() );
+			IplImage *img= cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
+			Relief2Image(heightPyr[0], img);
+
+			IplImage *Image =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_8U, 1);
+			cvConvertScaleAbs(img, Image, 255, 0);
+
+			IplImage *gradientX =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_16S, 1);
+			IplImage *gradientY =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_16S, 1);
+			cvSobel( Image, gradientX, 1, 0);
+			cvSobel( Image, gradientY, 0, 1);
+
+			if( reference == 1 )		//F9
+			{
+				gradientCorrection(gradientX, gradientY);		
+			}
+			else if( reference == 2 )	//F10
+			{
+				reliefHistogram(gradientX, gradientY);
+			}
+			else
+			{
+			}
+		}
+
+		if(mesh2)
+		{
+			DrawRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
+		}
+
+	glPopMatrix();
+	/*****     Partition 3     *****/
+	
 
     glutSwapBuffers();
 }
@@ -2969,6 +3159,12 @@ void SpecialKeys(int key, int x, int y)
 		case GLUT_KEY_F3:
 			method = 3;
 			break;
+		case GLUT_KEY_F9:
+			reference = 1;
+			break;
+		case GLUT_KEY_F10:
+			reference = 2;
+			break;
 	}
 }
 
@@ -3022,7 +3218,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("ramp2.obj");
+	MODEL = glmReadOBJ("asain dragon.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
