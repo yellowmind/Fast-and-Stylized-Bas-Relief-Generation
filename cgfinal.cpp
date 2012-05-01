@@ -20,7 +20,11 @@
 
 #include <iostream>
 #include <vector>
+#include <utility>
+#include <set>
 #include "CVector3.h"
+
+using namespace std;
 
 #ifndef bool
 #define bool int
@@ -29,6 +33,7 @@
 #endif
 
 #define HistogramBins  1000
+typedef pair<int, float> P;
 
 float maxf(float a, float b)
 {
@@ -46,7 +51,7 @@ inline float round( float d )
 #ifndef M_PI
 #define M_PI 3.14159
 #endif
-using namespace std;
+
 //using namespace cv;
 
 int 	winWidth0, winHeight0, winWidth, winHeight;
@@ -1434,6 +1439,76 @@ void gradientWeight(vector<GLfloat> &src, int ext)
 	}
 }
 
+struct setcomp {
+	bool operator() (const P& lhs, const P& rhs) const
+	{
+		if( lhs.second != rhs.second )
+			return lhs.second > rhs.second;
+		else
+			return lhs.first > rhs.first;
+	}
+};
+
+void sortAddress(float src[], int dst[])
+{	
+	set<P, setcomp> s;
+
+	for(int i = 1; i < HistogramBins+1; i++)
+	{
+		s.insert( P(i, src[i]) );
+	}
+	
+	set<P, setcomp>::iterator iter;
+	int i = 1;
+    for (iter = s.begin(); iter != s.end(); ++iter)
+    {
+		dst[i] = (*iter).first;
+		i++;
+    }
+
+}
+
+void redistribute(float h[], float cumulative, float l)
+{
+	l = cumulative*l / HistogramBins;
+
+	int sort[ HistogramBins+1 ];
+	sortAddress(h, sort);
+
+	int i;
+	float S = 0;
+	for(i = 1; i < HistogramBins+1; i++)
+	{
+		if( h[ sort[i] ] >= l )
+		{
+			S += h[ sort[i] ];
+		}
+		else break;
+	}
+	if( i - 1 >= 1 )
+	{
+		int q = i - 1;
+		for(i = q; i < HistogramBins ; i++)
+		{
+			if( S / ( HistogramBins - i ) > l - h[ sort[i+1] ] )
+			{
+				S +=  h[ sort[i+1] ] - l;
+			}
+			else	break;
+		}
+
+		int j;
+		for(j = 1; j <= i; j++)
+		{
+			h[ sort[j] ] = l;
+		}
+		for(j = i+1; j < HistogramBins+1; j++)
+		{
+			h[ sort[j] ] += S / (HistogramBins - i) ;
+		}
+	}
+}
+
 void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=NULL, int aperture=33)
 {	
 	vector<GLfloat> weight;
@@ -1454,7 +1529,7 @@ void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=
 	{
 		gradientWeight(weight, ext);
 	}
-
+	
 	int srcHeight = sqrt( (float)src.size() );
 	for(int i=0; i< srcHeight; i++)
 	{
@@ -1512,13 +1587,19 @@ void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=
 					}
 				}
 
-				float sum[ HistogramBins+1 ];
-		
-				float number =  0;
+				float cumulative =  0;
 				for(int bin=1; bin < HistogramBins+1; bin++)
 				{
-					number += hist[bin];
+					cumulative += hist[bin];
 				}
+				
+				/*float test[6] = {0, 50, 100, 200, 150, 100};
+				redistribute(test, 600, 1);*/
+				redistribute(hist, cumulative, 4);
+
+				float sum[ HistogramBins+1 ];
+		
+				
 				for(int bin=1; bin < HistogramBins+1; bin++)
 				{
 					if( bin == 1 )
@@ -1530,11 +1611,11 @@ void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=
 					}
 					else if( bin == 2)
 					{
-						sum[bin] = sum[bin-1] + ( hist[2] - hist[1]) /* *HistogramBins*/ / number;
+						sum[bin] = sum[bin-1] + ( hist[2] - hist[1]) /* *HistogramBins*/ / cumulative;
 					}
 					else
 					{
-						sum[bin] = sum[bin-1] + hist[bin] /* *HistogramBins*/  / number;
+						sum[bin] = sum[bin-1] + hist[bin] /* *HistogramBins*/  / cumulative;
 						//sum2[i] = sum2[i-1] + cvGetReal1D(lHist1->bins, i);
 					}
 				}
@@ -1573,7 +1654,17 @@ void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=
 		
 }
 
-
+void vectorAdd(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat> dst)
+{
+	if( src1.size() != src2.size() || src2.size() != dst.size() || dst.size() != src1.size() ) return;
+	else
+	{
+		for(int i=0; i < src1.size(); i++)
+		{
+			dst[i] = src1[i] + src2[i];
+		}
+	}
+}
 
 void DrawRelief(vector<GLfloat> src, GLdouble *pThreadRelief, GLdouble *pThreadNormal)
 {
@@ -2358,8 +2449,18 @@ void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 			//		height.at(i) = 1 - height.at(i);	//transfer depth to height
 			//	}
 			//}
+			vector<GLfloat> AHEHeight;
 			referenceHeight.clear();
-			equalizeHist(heightPyr[0], referenceHeight, gradient);
+			for(int i=0; i < heightPyr[0].size(); i++)
+			{
+				referenceHeight.push_back(0);
+			}
+
+			for(int k=1; k <= 4; k++)
+			{
+				equalizeHist(heightPyr[0], AHEHeight, gradient, pow(2.0, k-1) * 32*2 + 1);
+				vectorAdd(referenceHeight, AHEHeight, referenceHeight);
+			}
 
 			
 			for(int i=0; i < referenceHeight.size(); i++)
@@ -3322,7 +3423,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("curve.obj");
+	MODEL = glmReadOBJ("asain dragon.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
