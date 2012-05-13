@@ -22,6 +22,9 @@
 #include <vector>
 #include <utility>
 #include <set>
+#include <ctime>
+
+#include <omp.h>
 #include "CVector3.h"
 
 using namespace std;
@@ -32,7 +35,7 @@ using namespace std;
 #define true 1
 #endif
 
-#define HistogramBins  1000
+#define HistogramBins  10000
 typedef pair<int, float> P;
 
 float maxf(float a, float b)
@@ -74,7 +77,7 @@ CVector3 farPoint, far2Point, nearPoint;
 GLdouble MODELSCALE = 1.0;
 GLdouble LIGHTP = 15;
 
-bool scene=true, relief1=false, relief2=false , mesh1=false, mesh2=false, profile1=false, profile2=false;
+bool scene=true, relief1=false, relief2=false , mesh1=false, mesh2=false, profile1=false, profile2=false, time1=false, time2=false;
 float dynamicRange;
 GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =1;
 GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
@@ -105,8 +108,11 @@ GLdouble *pThreadEqualizeNormal = NULL;
 GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
-int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 0, reference = 2;
+//int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
+int method = 0, reference = 2;//; ref1: gradient correction, ref2: histogram
+float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
+float perspective[4] = {60, 1, 0.1, 10};
+GLdouble projection[16], modelview[16], inverse[16];
 /*----------------------------------------------------------------------*/
 /*
 ** Draw the wireflame cube.
@@ -1498,10 +1504,12 @@ void redistribute(float h[], float cumulative, float l)
 		}
 
 		int j;
+		//#pragma omp parallel for
 		for(j = 1; j <= i; j++)
 		{
 			h[ sort[j] ] = l;
 		}
+		//#pragma omp parallel for
 		for(j = i+1; j < HistogramBins+1; j++)
 		{
 			h[ sort[j] ] += S / (HistogramBins - i) ;
@@ -1533,6 +1541,7 @@ void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=
 	int srcHeight = sqrt( (float)src.size() );
 	for(int i=0; i< srcHeight; i++)
 	{
+		//#pragma omp parallel for private(hist)
 		for(int j=0; j< srcHeight; j++)
 		{
 			if(src.at( i*srcHeight + j) == 0)
@@ -1547,6 +1556,7 @@ void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=
 				{
 					for(int p=-ext; p <=ext; p++)
 					{
+						//#pragma omp parallel for
 						for(int q=-ext; q <=ext; q++)
 						{
 							if( gradient == NULL)
@@ -1573,6 +1583,7 @@ void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=
 					
 					for(int p=extU; p <= extD; p++)
 					{
+						#pragma omp parallel for
 						for(int q=extL; q <= extR; q++)
 						{
 							if( gradient == NULL)
@@ -1595,12 +1606,12 @@ void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=
 				
 				/*float test[6] = {0, 50, 100, 200, 150, 100};
 				redistribute(test, 600, 1);*/
-				redistribute(hist, cumulative, 4);
+				redistribute(hist, cumulative, 16);
 
 				float sum[ HistogramBins+1 ];
 		
 				
-				for(int bin=1; bin < HistogramBins+1; bin++)
+				for(int bin=1; bin < src[ i*srcHeight + j] * HistogramBins + 1; bin++)
 				{
 					if( bin == 1 )
 					{
@@ -1654,7 +1665,7 @@ void equalizeHist(vector<GLfloat> src, vector<GLfloat> &dst, IplImage *gradient=
 		
 }
 
-void vectorAdd(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat> dst)
+void vectorAdd(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat> &dst)
 {
 	if( src1.size() != src2.size() || src2.size() != dst.size() || dst.size() != src1.size() ) return;
 	else
@@ -1663,6 +1674,15 @@ void vectorAdd(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat> dst)
 		{
 			dst[i] = src1[i] + src2[i];
 		}
+	}
+}
+
+void vectorScale(vector<GLfloat> src, vector<GLfloat> &dst, float scale)
+{
+	if( src.size() != dst.size() ) return;
+	for(int i=0; i < src.size(); i++)
+	{
+			dst[i] = src[i] * scale;
 	}
 }
 
@@ -1808,8 +1828,7 @@ void BilateralDetailBase(void)
 		
 		
 		//GLfloat maxDepth=0,minDepth=1;
-		if(relief1)
-		{
+		
 		//	disp++;
 		//	height.clear();
 		//	
@@ -2177,12 +2196,8 @@ void BilateralDetailBase(void)
 			mesh1 = true;
 			relief1 = false;
 			profile2 = true;
-		}
+	
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
-		if(mesh1)
-		{
-			DrawRelief(compressedH, pThreadRelief, pThreadNormal);
-		}
 }
 
 void linearCompressedBase(void)
@@ -2201,8 +2216,7 @@ void linearCompressedBase(void)
 		
 		
 		//GLfloat maxDepth=0,minDepth=1;
-		if(relief1)
-		{
+		
 			vector<GLfloat> height2, upHeight, laplace[pyrLevel - 1];
 			IplImage *img, *img2, *imgGa, *imgLa, *bgImg, *base_img, *detail_img;
 			
@@ -2300,7 +2314,7 @@ void linearCompressedBase(void)
 			/*****	laplacian layer	*****/
 
 			Image2Relief(imgGa, compressedH);
-			bgFilter(compressedH, bgMask);
+			bgFilter( compressedH, bgMask );
 
 			for(int i=0; i < compressedH.size(); i++)
 			{
@@ -2361,12 +2375,8 @@ void linearCompressedBase(void)
 			mesh1 = true;
 			relief1 = false;
 			profile2 = true;
-		}
+		
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
-		if(mesh1)
-		{
-			DrawRelief(compressedH, pThreadRelief, pThreadNormal);
-		}
 }
 
 void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
@@ -2395,8 +2405,13 @@ void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 			cvPow(gradient, gradient, 0.5);
 
 			IplImage *outlineImg = cvCreateImage( cvGetSize(gradient), IPL_DEPTH_32F, 1);
+			IplImage *bgImg = cvCreateImage( cvGetSize(gradient), IPL_DEPTH_32F, 1);
+
 			extractOutline(img0, outlineImg, 1);
 			bgFilter(gradient, outlineImg);
+
+			Relief2Image( bgMask, bgImg );
+			bgFilter(gradient, bgImg);
 		//	disp++;
 		//	height.clear();
 		//	
@@ -2456,11 +2471,15 @@ void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 				referenceHeight.push_back(0);
 			}
 
-			for(int k=1; k <= 4; k++)
+			int n=1;
+			//#pragma omp parallel for private(AHEHeight)
+			for(int k=1; k <= n; k++)
 			{
-				equalizeHist(heightPyr[0], AHEHeight, gradient, pow(2.0, k-1) * 32*2 + 1);
+				equalizeHist(heightPyr[0], AHEHeight, gradient, pow(2.0, k-1) * 16*2 + 1);
 				vectorAdd(referenceHeight, AHEHeight, referenceHeight);
+				AHEHeight.clear();
 			}
+			vectorScale(referenceHeight, referenceHeight, 1.0/n);
 
 			
 			for(int i=0; i < referenceHeight.size(); i++)
@@ -2507,18 +2526,22 @@ void correct(IplImage *GradX, IplImage *GradY, double w=1.8, double e=0.001)
 					int i = count/(m-1);
 					int j = count%(m-1);
 					//cout << "c1" << std::endl;
-					err = cvGetReal2D(GradX, i, j) + cvGetReal2D(GradY, i, j+1) - cvGetReal2D(GradY, i, j) - cvGetReal2D(GradX, i+1, j);
-					if( abs(err) > max_err )
+					if( !(bgMask[ i + j*n ] && bgMask[ i + (j+1)*n ] && bgMask[ i+1 + j*n ] && bgMask[ i+1 + (j+1)*n ]) )
 					{
-						max_err = abs(err);
-					}
+						err = cvGetReal2D(GradX, i, j) + cvGetReal2D(GradY, i, j+1) - cvGetReal2D(GradY, i, j) - cvGetReal2D(GradX, i+1, j);
+						if( abs(err) > max_err )
+						{
+							max_err = abs(err);
+						}
 
-					double s = 0.25 * err * w;
-					//cout << "c2" << std::endl;
-					cvSetReal2D( GradX, i, j, -s + cvGetReal2D(GradX, i, j) );
-					cvSetReal2D( GradY, i, j+1, -s + cvGetReal2D(GradY, i, j+1) );
-					cvSetReal2D( GradY, i, j, s + cvGetReal2D(GradY, i, j) );
-					cvSetReal2D( GradX, i+1, j, s + cvGetReal2D(GradX, i+1, j) );
+						double s = 0.25 * err * w;
+						//cout << "c2" << std::endl;
+						cvSetReal2D( GradX, i, j, -s + cvGetReal2D(GradX, i, j) );
+						cvSetReal2D( GradY, i, j+1, -s + cvGetReal2D(GradY, i, j+1) );
+						cvSetReal2D( GradY, i, j, s + cvGetReal2D(GradY, i, j) );
+						cvSetReal2D( GradX, i+1, j, s + cvGetReal2D(GradX, i+1, j) );
+					}
+					
 				
 		}
 	} while(max_err >= e);
@@ -2536,16 +2559,30 @@ void intergrate(IplImage *GradX, IplImage *GradY, IplImage *dst)
 		//cout << "i1" << std::endl;
 		if(i > 0)
 		{
-			value = cvGetReal2D(dst, i-1, 0) + cvGetReal2D(GradY, i-1, 0) ;
-			//cout << value << std::endl;
-			cvSetReal2D( dst, i, 0, cvGetReal2D(dst, i-1, 0) + cvGetReal2D(GradY, i-1, 0) );
+			if( bgMask[i] )
+			{
+				cvSetReal2D(dst, i, 0, 0);
+			}
+			else
+			{
+				value = cvGetReal2D(dst, i-1, 0) + cvGetReal2D(GradY, i-1, 0) ;
+				//cout << value << std::endl;
+				cvSetReal2D( dst, i, 0, cvGetReal2D(dst, i-1, 0) + cvGetReal2D(GradY, i-1, 0) );
+			}
 		}
 		//cout << "i2" << std::endl;
 		for(int j=1; j<m; j++)
 		{
-			value = cvGetReal2D(dst, i, j-1) + cvGetReal2D(GradX, i, j-1);
-			//cout << value << std::endl;
-			cvSetReal2D( dst, i, j, cvGetReal2D(dst, i, j-1) + cvGetReal2D(GradX, i, j-1) );
+			if( bgMask[ i + j*n ] )
+			{
+				cvSetReal2D(dst, i, j, 0);
+			}
+			else
+			{
+				value = cvGetReal2D(dst, i, j-1) + cvGetReal2D(GradX, i, j-1);
+				//cout << value << std::endl;
+				cvSetReal2D( dst, i, j, cvGetReal2D(dst, i, j-1) + cvGetReal2D(GradX, i, j-1) );
+			}
 		}
 	}
 }
@@ -2610,7 +2647,7 @@ void gradientCorrection(IplImage *gradientX, IplImage *gradientY)
 void displayline(void)
 {
 	glViewport(0, 0, winWidth/3, winHeight);
-	
+	glDisable(GL_LIGHTING);
 	/*glDisable(GL_CULL_FACE);
 	glClear(GL_DEPTH_BUFFER_BIT);*/
 
@@ -2640,7 +2677,7 @@ void openglPath(void)
 	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
 	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
 	//gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
-	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
+	gluPerspective(perspective[0], (GLfloat)(winWidth/3)/winHeight, perspective[2], perspective[3]); 
 	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
 
 
@@ -2892,6 +2929,228 @@ void displayfont()
 	//}
 }
 
+void identity(GLdouble m[16])
+{
+    m[0+4*0] = 1; m[0+4*1] = 0; m[0+4*2] = 0; m[0+4*3] = 0;
+    m[1+4*0] = 0; m[1+4*1] = 1; m[1+4*2] = 0; m[1+4*3] = 0;
+    m[2+4*0] = 0; m[2+4*1] = 0; m[2+4*2] = 1; m[2+4*3] = 0;
+    m[3+4*0] = 0; m[3+4*1] = 0; m[3+4*2] = 0; m[3+4*3] = 1;
+}
+
+GLboolean invert(GLdouble src[16], GLdouble inverse[16])
+{
+    double t;
+    int i, j, k, swap;
+    GLdouble tmp[4][4];
+
+    identity(inverse);
+
+    for (i = 0; i < 4; i++) {
+	for (j = 0; j < 4; j++) {
+	    tmp[i][j] = src[i*4+j];
+	}
+    }
+
+    for (i = 0; i < 4; i++) {
+        /* look for largest element in column. */
+        swap = i;
+        for (j = i + 1; j < 4; j++) {
+            if (fabs(tmp[j][i]) > fabs(tmp[i][i])) {
+                swap = j;
+            }
+        }
+
+        if (swap != i) {
+            /* swap rows. */
+            for (k = 0; k < 4; k++) {
+                t = tmp[i][k];
+                tmp[i][k] = tmp[swap][k];
+                tmp[swap][k] = t;
+
+                t = inverse[i*4+k];
+                inverse[i*4+k] = inverse[swap*4+k];
+                inverse[swap*4+k] = t;
+            }
+        }
+
+        if (tmp[i][i] == 0) {
+            /* no non-zero pivot.  the matrix is singular, which
+	       shouldn't happen.  This means the user gave us a bad
+	       matrix. */
+            return GL_FALSE;
+        }
+
+        t = tmp[i][i];
+        for (k = 0; k < 4; k++) {
+            tmp[i][k] /= t;
+            inverse[i*4+k] /= t;
+        }
+        for (j = 0; j < 4; j++) {
+            if (j != i) {
+                t = tmp[j][i];
+                for (k = 0; k < 4; k++) {
+                    tmp[j][k] -= tmp[i][k]*t;
+                    inverse[j*4+k] -= inverse[i*4+k]*t;
+                }
+            }
+        }
+    }
+    return GL_TRUE;
+}
+
+float normalize(float* v)
+{
+    float length;
+
+    length = sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+    v[0] /= length;
+    v[1] /= length;
+    v[2] /= length;
+
+    return length;
+}
+
+void model_transform(void)
+{
+	glRotated(angleX,1, 0, 0);
+	glRotated(angleY,0, 1, 0);
+	glRotated(angleZ,0, 0, 1);
+
+	glMultMatrixd(TRACKM);
+
+	glScaled(MODELSCALE, MODELSCALE, MODELSCALE);
+}
+
+void drawaxes(void)
+{
+    glColor3ub(255, 0, 0);
+    glBegin(GL_LINE_STRIP);
+    glVertex3f(0.0, 0.0, 0.0);
+    glVertex3f(1.0, 0.0, 0.0);
+    glVertex3f(0.75, 0.25, 0.0);
+    glVertex3f(0.75, -0.25, 0.0);
+    glVertex3f(1.0, 0.0, 0.0);
+    glVertex3f(0.75, 0.0, 0.25);
+    glVertex3f(0.75, 0.0, -0.25);
+    glVertex3f(1.0, 0.0, 0.0);
+    glEnd();
+    glBegin(GL_LINE_STRIP);
+    glVertex3f(0.0, 0.0, 0.0);
+    glVertex3f(0.0, 1.0, 0.0);
+    glVertex3f(0.0, 0.75, 0.25);
+    glVertex3f(0.0, 0.75, -0.25);
+    glVertex3f(0.0, 1.0, 0.0);
+    glVertex3f(0.25, 0.75, 0.0);
+    glVertex3f(-0.25, 0.75, 0.0);
+    glVertex3f(0.0, 1.0, 0.0);
+    glEnd();
+    glBegin(GL_LINE_STRIP);
+    glVertex3f(0.0, 0.0, 0.0);
+    glVertex3f(0.0, 0.0, 1.0);
+    glVertex3f(0.25, 0.0, 0.75);
+    glVertex3f(-0.25, 0.0, 0.75);
+    glVertex3f(0.0, 0.0, 1.0);
+    glVertex3f(0.0, 0.25, 0.75);
+    glVertex3f(0.0, -0.25, 0.75);
+    glVertex3f(0.0, 0.0, 1.0);
+    glEnd();
+
+    glColor3ub(255, 255, 0);
+    glRasterPos3f(1.1, 0.0, 0.0);
+    glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'x');
+    glRasterPos3f(0.0, 1.1, 0.0);
+    glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'y');
+    glRasterPos3f(0.0, 0.0, 1.1);
+    glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'z');
+}
+
+void world_display(void)
+{
+	double length;
+    float l[3];
+
+    l[0] = lookat[3] - lookat[0]; 
+    l[1] = lookat[4] - lookat[1]; 
+    l[2] = lookat[5] - lookat[2];
+    length = normalize(l);
+	
+	invert(modelview, inverse);
+	
+	glEnable(GL_LIGHTING);
+	glPushMatrix();
+			glMultMatrixd(inverse);
+			glLightfv(GL_LIGHT0, GL_POSITION, lightPos0);
+	glPopMatrix();
+
+	glPushMatrix();
+		model_transform();
+		glColor3f(1.0, 1.0, 1.0);
+		glmDraw(MODEL, GLM_SMOOTH);//GLM_FLAT
+	glPopMatrix();
+	glDisable(GL_LIGHTING);
+
+	glPushMatrix();
+
+		glMultMatrixd(inverse);
+		/* draw the axis and eye vector */
+		glPushMatrix();
+			glColor3ub(0, 0, 255);
+			glBegin(GL_LINE_STRIP);
+			glVertex3f(0.0, 0.0, 0.0);
+			glVertex3f(0.0, 0.0, -1.0*length);
+			glVertex3f(0.1, 0.0, -0.9*length);
+			glVertex3f(-0.1, 0.0, -0.9*length);
+			glVertex3f(0.0, 0.0, -1.0*length);
+			glVertex3f(0.0, 0.1, -0.9*length);
+			glVertex3f(0.0, -0.1, -0.9*length);
+			glVertex3f(0.0, 0.0, -1.0*length);
+			glEnd();
+			glColor3ub(255, 255, 0);
+			glRasterPos3f(0.0, 0.0, -1.1*length);
+			glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'e');
+			glColor3ub(255, 0, 0);
+			glScalef(0.4, 0.4, 0.4);
+			drawaxes();
+		glPopMatrix();
+
+		invert(projection, inverse);
+		glMultMatrixd(inverse);
+
+		/* draw the viewing frustum */
+		glColor3f(0.2, 0.2, 0.2);
+		glBegin(GL_QUADS);
+		glVertex3i(1, 1, 1);
+		glVertex3i(-1, 1, 1);
+		glVertex3i(-1, -1, 1);
+		glVertex3i(1, -1, 1);
+		glEnd();
+
+		glColor3ub(128, 196, 128);
+		glBegin(GL_LINES);
+		glVertex3i(1, 1, -1);
+		glVertex3i(1, 1, 1);
+		glVertex3i(-1, 1, -1);
+		glVertex3i(-1, 1, 1);
+		glVertex3i(-1, -1, -1);
+		glVertex3i(-1, -1, 1);
+		glVertex3i(1, -1, -1);
+		glVertex3i(1, -1, 1);
+		glEnd();
+
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glColor4f(0.2, 0.2, 0.4, 0.5);
+		glBegin(GL_QUADS);
+		glVertex3i(1, 1, -1);
+		glVertex3i(-1, 1, -1);
+		glVertex3i(-1, -1, -1);
+		glVertex3i(1, -1, -1);
+		glEnd();
+		glDisable(GL_BLEND);
+
+    glPopMatrix();
+}
+
 //Oringinal Scene
 void display0(void)
 {
@@ -2904,7 +3163,8 @@ void display0(void)
 			glGetDoublev(GL_MODELVIEW_MATRIX, TRACKM);
 		glPopMatrix();	    
 	}
-	
+
+	glEnable(GL_LIGHTING);
 	glEnable(GL_LIGHT0);
 	glDisable(GL_LIGHT1);
 	glDisable(GL_LIGHT2);
@@ -2912,19 +3172,26 @@ void display0(void)
 	//view transform
 	glViewport(0, 0, winWidth0, winHeight0);
 
-    glMatrixMode(GL_PROJECTION);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	//glOrtho(-2.0, 2.0, -2.0, 2.0, -2.0, 2.0);
+	glOrtho(0, winWidth, 0, winHeight, -2.0, 2.0);
+    
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+	glViewport(winWidth0/2 , 0, winWidth0/2, winHeight0);
+	
+	glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
-	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	gluPerspective(60, (GLfloat)winWidth0/winHeight0, 0.1, 25); 
-	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
 
+	gluPerspective(perspective[0], perspective[1], perspective[2], perspective[3]); 
+	glGetDoublev(GL_PROJECTION_MATRIX,projection);
 
     glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
-	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
-	glGetDoublev(GL_MODELVIEW_MATRIX, DEBUG_M);
+	gluLookAt(lookat[0], lookat[1], lookat[2], lookat[3], lookat[4], lookat[5], lookat[6], lookat[7], lookat[8]);
+	glGetDoublev(GL_MODELVIEW_MATRIX, modelview);
 
 	lightPos0[0] = -LIGHTP;
 	lightPos0[1] = LIGHTP;
@@ -2949,13 +3216,7 @@ void display0(void)
 	
 	glPushMatrix();
 		//multiple trackball matrix
-		glRotated(angleX,1, 0, 0);
-		glRotated(angleY,0, 1, 0);
-		glRotated(angleZ,0, 0, 1);
-
-		glMultMatrixd(TRACKM);
-
-		glScaled(MODELSCALE, MODELSCALE, MODELSCALE);
+		model_transform();
 		glColor3f(1.0, 1.0, 1.0);
 		//glGetFloatv(GL_MODELVIEW_MATRIX, mat);
 		glmDraw(MODEL, GLM_SMOOTH);//GLM_FLAT
@@ -2979,55 +3240,77 @@ void display0(void)
 	//	glEnd();		*/
 	//glPopMatrix();
 
-	float maxDepthPoint[3], minDepthPoint[3], max2DepthPoint[3];
-	maxDepthPoint[0] = 0, maxDepthPoint[1] = 0, maxDepthPoint[2] = 0;
-	minDepthPoint[2] = 1;
+		float maxDepthPoint[3], minDepthPoint[3], max2DepthPoint[3];
+		maxDepthPoint[0] = 0, maxDepthPoint[1] = 0, maxDepthPoint[2] = 0;
+		minDepthPoint[2] = 1;
 
-	if( scene )
-	{
-		glGetFloatv(GL_MODELVIEW_MATRIX, m);
-
-		float *depthmap = new float[winWidth0*winHeight0];
-		glReadPixels(0, 0, winWidth0, winHeight0, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
-		
-		for(int i=boundary; i<winWidth0 - boundary; i++)
+		if( scene )
 		{
-			for(int j=boundary; j<winHeight0 - boundary; j++)
+			glGetFloatv(GL_MODELVIEW_MATRIX, m);
+
+			float *depthmap = new float[winWidth0*winHeight0];
+			glReadPixels(0, 0, winWidth0, winHeight0, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
+			
+			for(int i=boundary; i<winWidth0 - boundary; i++)
 			{
-				GLfloat depth = depthmap[j*winWidth0 + i];
-				//glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
-
-				if( maxDepthPoint[2] < depth && depth !=1)
+				for(int j=boundary; j<winHeight0 - boundary; j++)
 				{
-					max2DepthPoint[0] = maxDepthPoint[0];
-					max2DepthPoint[1] = maxDepthPoint[1];
-					max2DepthPoint[2] = maxDepthPoint[2];
-					
-					maxDepthPoint[0] = i;
-					maxDepthPoint[1] = j;
-					maxDepthPoint[2] = depth;
-				}
-				if( minDepthPoint[2] > depth)
-				{	
-					minDepthPoint[0] = i;
-					minDepthPoint[1] = j;
-					minDepthPoint[2] = depth;
-				}
+					GLfloat depth = depthmap[j*winWidth0 + i];
+					//glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
 
+					if( maxDepthPoint[2] < depth && depth !=1)
+					{
+						max2DepthPoint[0] = maxDepthPoint[0];
+						max2DepthPoint[1] = maxDepthPoint[1];
+						max2DepthPoint[2] = maxDepthPoint[2];
+						
+						maxDepthPoint[0] = i;
+						maxDepthPoint[1] = j;
+						maxDepthPoint[2] = depth;
+					}
+					if( minDepthPoint[2] > depth)
+					{	
+						minDepthPoint[0] = i;
+						minDepthPoint[1] = j;
+						minDepthPoint[2] = depth;
+					}
+
+				}
 			}
-		}
-		delete [] depthmap;
-	
-
-		farPoint = GetOGLPos(maxDepthPoint);
-		far2Point = GetOGLPos(max2DepthPoint);
-		nearPoint = GetOGLPos(minDepthPoint);
+			delete [] depthmap;
 		
-		dynamicRange = (nearPoint.n[2] - farPoint.n[2]) / (far2Point.n[2] - farPoint.n[2]);
 
-		scene = false;
-	}
+			farPoint = GetOGLPos(maxDepthPoint);
+			far2Point = GetOGLPos(max2DepthPoint);
+			nearPoint = GetOGLPos(minDepthPoint);
+			
+			dynamicRange = (nearPoint.n[2] - farPoint.n[2]) / (far2Point.n[2] - farPoint.n[2]);
+
+			scene = false;
+		}
 	glPopMatrix();
+
+	//glViewport(0, 0, winWidth0, winHeight0);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	//glOrtho(-2.0, 2.0, -2.0, 2.0, -2.0, 2.0);
+	glOrtho(0, winWidth0, 0, winHeight0, -2.0, 2.0);
+    
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+	glViewport(0 , 0, winWidth0/2, winHeight0);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+	gluPerspective(60.0, (GLfloat)winWidth0/winHeight0, 1.0, 256.0);
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glTranslatef(0.0, 0.0, -5.0);
+    glRotatef(-45.0, 0.0, 1.0, 0.0);
+    glClearColor(0.0, 0.0, 0.0, 0.0);
+
+	world_display();
 	
 	glutSwapBuffers();
 }
@@ -3039,6 +3322,9 @@ void display(void)
 	displayfont();
 	//displayline();
 
+	clock_t start_time1, end_time1, start_time2, end_time2;
+	float total_time1 = 0, total_time2 = 0;
+
     /*****     Partition 1     *****/
 	if (trackballMove) {
 		glPushMatrix();
@@ -3048,6 +3334,7 @@ void display(void)
 		glPopMatrix();	    
 	}
 	
+	glEnable(GL_LIGHTING);
 	glEnable(GL_LIGHT0);
 	glDisable(GL_LIGHT1);
 	glDisable(GL_LIGHT2);
@@ -3069,17 +3356,37 @@ void display(void)
 		glMultMatrixd(TRACKM);
 		glTranslated(-0.2, 0, 0);
 
-		if( method == 1 )		//F1
-		{	
-			BilateralDetailBase();
-		}
-		else if( method == 2 )		//F2
+		if( relief1)
 		{
-			linearCompressedBase();
+			time1 = true;
+			total_time1 = 0;
+			start_time1 = clock();
+
+			if( method == 1 )		//F1
+			{	
+				BilateralDetailBase();
+			}
+			else if( method == 2 )		//F2
+			{
+				linearCompressedBase();
+			}
+			else	//F3
+			{
+				relief1 = false;
+			}
 		}
-		else	//F3
+
+		if(mesh1)
 		{
-			relief1 = false;
+			DrawRelief(compressedH, pThreadRelief, pThreadNormal);
+
+			if(time1)
+			{
+				end_time1 = clock();
+				total_time1 = (float)(end_time1 - start_time1)/CLOCKS_PER_SEC;
+				cout << "Time1: " <<  total_time1 << std::endl;
+				time1 = false;
+			}
 		}
 
 	glPopMatrix();
@@ -3094,6 +3401,10 @@ void display(void)
 
 		if(relief2)
 		{
+			time2 = true;
+			total_time2 = 0;
+			start_time2 = clock();
+
 			int width = sqrt( (float) heightPyr[0].size() );
 			/*IplImage *img= cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
 			Relief2Image(heightPyr[0], img);*/
@@ -3123,13 +3434,24 @@ void display(void)
 		if(mesh2)
 		{
 			DrawRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
+
+			if(time2)
+			{
+				end_time2 = clock();
+				total_time2 = (float)(end_time2 - start_time2)/CLOCKS_PER_SEC;
+				cout << "Time2: " <<  total_time2 << std::endl;
+				time2 = false;
+			}
 		}
 
 	glPopMatrix();
 	/*****     Partition 3     *****/
 	
+	
+	
 
     glutSwapBuffers();
+
 }
 
 /*----------------------------------------------------------------------*/
@@ -3176,6 +3498,7 @@ void myReshape0(int w, int h)
 {
     winWidth0 = w;
     winHeight0 = h;
+	perspective[1] = w/2.0/h;
 
 	swInitZbuffer(w/2, h);
 }
@@ -3270,18 +3593,33 @@ void myKeys(unsigned char key, int x, int y)
         case 'q':  
 			exit(0); 
 			break;
-
+		/***** perspective setting *****/
         case '0':  
 			//DRAWTYPE=0; 
-			ReliefType = 0;
+			perspective[2] = 0.1;
+			perspective[3] = 25;
 			break;
         case '1':  
 			//DRAWTYPE=1; 
-			ReliefType = 1;
+			if( perspective[2] > 0.1 )
+			{
+				perspective[2] -= 0.1;
+			}
 			break;
 		case '3':  
-			ReliefType=2;
+			perspective[2] += 0.1;
 			break;
+		case '7':  
+			if( perspective[3] > 0.1 )
+			{
+				perspective[3] -= 0.1;
+			}
+			break;
+		case '9':  
+			perspective[3] += 0.1;
+			break;
+		/***** perspective setting *****/
+		/***** relief transformation *****/
         case '4':  
 			reliefAngleY--;
 			setZeroAxis();
@@ -3305,6 +3643,7 @@ void myKeys(unsigned char key, int x, int y)
 			if(scale > 0.1)
 			scale -= 0.5; 
 			break;
+		/***** relief transformation *****/
 		//Space
 		case ' ':  
 			scene = true;
@@ -3378,7 +3717,7 @@ int main(int argc, char **argv)
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
 	int windowHeight = 440, horizontalSplit = 3;
-	glutInitWindowSize(windowHeight, windowHeight);
+	glutInitWindowSize(windowHeight*2, windowHeight);
 	glutInitWindowPosition(0, 20);
    int Window0 = glutCreateWindow("Oringinal Scene");
 
@@ -3423,7 +3762,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("asain dragon.obj");
+	MODEL = glmReadOBJ("caesar.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
@@ -3538,6 +3877,7 @@ int main(int argc, char **argv)
 	free(pThreadNormal);
 	free(pThreadEqualizeRelief);
 	free(pThreadEqualizeNormal);
+
 
 	cvWaitKey(0);
 }
