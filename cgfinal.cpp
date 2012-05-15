@@ -109,7 +109,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 0, reference = 2;//; ref1: gradient correction, ref2: histogram
+int method = 2, reference = 0;//; ref1: gradient correction, ref2: histogram
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
 GLdouble projection[16], modelview[16], inverse[16];
@@ -1156,6 +1156,28 @@ void firstLaplace(void)
 			//relief1 = false;
 			profile1 = true;
 		}
+
+		if( winHeight || winWidth )
+		{
+			int height = winHeight - boundary*2;
+			int width = heightPyr[0].size() / height;
+			if( profile1 )
+			{			
+				sceneProfile.clear();
+				
+				for(int i=0; i < width - 1; i++)
+				{			
+					sceneProfile.push_back( (heightPyr[0][199 + i*height] + heightPyr[0][200 + i*height]) / 2 );
+				}
+
+				IplImage *profileImg = cvCreateImage( cvSize( width, height ), IPL_DEPTH_8U, 1);
+				DrawProfile(sceneProfile, profileImg, 0.9);
+				cvNamedWindow("Scene Profile", 1);
+				cvShowImage("Scene Profile", profileImg);
+
+				profile1 = false;
+			}
+		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
 		glColor3f(0.6, 0.6, 0.6);
 
@@ -1178,7 +1200,7 @@ void firstLaplace(void)
 			
 			if(mesh1)
 			{			
-					if( profile1 )
+					/*if( profile1 )
 					{			
 						sceneProfile.clear();
 						
@@ -1186,7 +1208,7 @@ void firstLaplace(void)
 						{			
 							sceneProfile.push_back( (heightPyr[0][199 + i*height] + heightPyr[0][200 + i*height]) / 2 );
 							
-							/*for(int j=0; j < height - 1; j++)
+							for(int j=0; j < height - 1; j++)
 							{
 								glBegin(GL_TRIANGLES);
 								glNormal3dv(pThreadNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
@@ -1201,7 +1223,7 @@ void firstLaplace(void)
 								glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
 								glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
 								glEnd();
-							}*/
+							}
 						}
 
 						IplImage *profileImg = cvCreateImage( cvSize( width, height ), IPL_DEPTH_8U, 1);
@@ -1210,15 +1232,15 @@ void firstLaplace(void)
 						cvShowImage("Scene Profile", profileImg);
 
 						profile1 = false;
-					}
+					}*/
 
-					else
+					/*else
 					{
 						for(int i=0; i < width - 1; i++)
 						{		
 							for(int j=0; j < height - 1; j++)
 							{
-								/*glBegin(GL_TRIANGLES);
+								glBegin(GL_TRIANGLES);
 								glNormal3dv(pThreadNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
 								glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + j ) * 3 );
 								glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
@@ -1230,10 +1252,10 @@ void firstLaplace(void)
 								glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 );
 								glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
 								glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
-								glEnd();*/
+								glEnd();
 							}
 						}
-					}
+					}*/
 			}
 		}
 		
@@ -1357,14 +1379,14 @@ void partition3(void)
 
 
 	//view transform
-	glViewport(winWidth*2/3 + boundary, 0 + boundary, winWidth*2/3 - 2*boundary, winHeight - 2*boundary);
+	glViewport(winWidth*2/3 + boundary, 0 + boundary, winWidth/3 - 2*boundary, winHeight - 2*boundary);
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
 	
 	//swOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
 	//swFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	gluPerspective(60, (GLfloat)(winWidth*2/3)/winHeight, 0.1, 300); 
+	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 300); 
 
     glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
@@ -1748,17 +1770,17 @@ void DrawRelief(vector<GLfloat> src, GLdouble *pThreadRelief, GLdouble *pThreadN
 						for(int j=0; j < height - 1; j++)
 						{
 							glBegin(GL_TRIANGLES);
-							glNormal3dv(pThreadEqualizeNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
-							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + j ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + (j+1) ) * 3 );
+							glNormal3dv( pThreadNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 ) *3);
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + (j+1) ) * 3 );
 							glEnd();
 							
 							glBegin(GL_TRIANGLES);
-							glNormal3dv(pThreadEqualizeNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 )  *3 + 3);
-							glVertex3dv( pThreadEqualizeRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
-							glVertex3dv( pThreadEqualizeRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
+							glNormal3dv( pThreadNormal + ( ( i*(winHeight - boundary*2)  +  j)*2 )  *3 + 3);
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
 							glEnd();
 						}		
 					}
@@ -2475,7 +2497,7 @@ void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 			//#pragma omp parallel for private(AHEHeight)
 			for(int k=1; k <= n; k++)
 			{
-				equalizeHist(heightPyr[0], AHEHeight, gradient, pow(2.0, k-1) * 16*2 + 1);
+				equalizeHist(heightPyr[0], AHEHeight, gradient, pow(2.0, k-1) * 8*2 + 1);
 				vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 				AHEHeight.clear();
 			}
@@ -2526,7 +2548,7 @@ void correct(IplImage *GradX, IplImage *GradY, double w=1.8, double e=0.001)
 					int i = count/(m-1);
 					int j = count%(m-1);
 					//cout << "c1" << std::endl;
-					if( !(bgMask[ i + j*n ] && bgMask[ i + (j+1)*n ] && bgMask[ i+1 + j*n ] && bgMask[ i+1 + (j+1)*n ]) )
+					if( !(bgMask[ n-2-i + j*n ] && bgMask[ n-2-i + (j+1)*n ] && bgMask[ n-2-i + 1 + j*n ] && bgMask[ n-2-i + 1 + (j+1)*n ]) )
 					{
 						err = cvGetReal2D(GradX, i, j) + cvGetReal2D(GradY, i, j+1) - cvGetReal2D(GradY, i, j) - cvGetReal2D(GradX, i+1, j);
 						if( abs(err) > max_err )
@@ -2559,7 +2581,7 @@ void intergrate(IplImage *GradX, IplImage *GradY, IplImage *dst)
 		//cout << "i1" << std::endl;
 		if(i > 0)
 		{
-			if( bgMask[i] )
+			if( bgMask[n - 1 -i] )
 			{
 				cvSetReal2D(dst, i, 0, 0);
 			}
@@ -2573,7 +2595,7 @@ void intergrate(IplImage *GradX, IplImage *GradY, IplImage *dst)
 		//cout << "i2" << std::endl;
 		for(int j=1; j<m; j++)
 		{
-			if( bgMask[ i + j*n ] )
+			if( bgMask[ n - 1 -i + j*n ] )
 			{
 				cvSetReal2D(dst, i, j, 0);
 			}
@@ -3354,7 +3376,7 @@ void display(void)
 	
 	glPushMatrix();
 		glMultMatrixd(TRACKM);
-		glTranslated(-0.2, 0, 0);
+		//glTranslated(-0.2, 0, 0);
 
 		if( relief1)
 		{
@@ -3397,7 +3419,7 @@ void display(void)
 
 	glPushMatrix();
 		glMultMatrixd(TRACKM);
-		glTranslated(-2.3, 0, 0);
+		glTranslated(0, 0, 0);
 
 		if(relief2)
 		{
@@ -3416,7 +3438,6 @@ void display(void)
 			IplImage *gradientY =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_16S, 1);
 			cvSobel( Image, gradientX, 1, 0);
 			cvSobel( Image, gradientY, 0, 1);
-
 
 			if( reference == 1 )		//F9
 			{
@@ -3709,6 +3730,9 @@ void SpecialKeys(int key, int x, int y)
 		case GLUT_KEY_F10:
 			reference = 2;
 			break;
+		case GLUT_KEY_F12:
+			reference = 0;
+			break;
 	}
 }
 
@@ -3762,7 +3786,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("caesar.obj");
+	MODEL = glmReadOBJ("ramp.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
