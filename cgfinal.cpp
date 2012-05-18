@@ -18,6 +18,7 @@
 #include "math3d.h"
 #include "glm.h"
 
+//#include <cstdlib>
 #include <iostream>
 #include <vector>
 #include <utility>
@@ -36,6 +37,7 @@ using namespace std;
 #endif
 
 #define HistogramBins  10000
+#define SIDE 55
 typedef pair<int, float> P;
 
 float maxf(float a, float b)
@@ -77,7 +79,7 @@ CVector3 farPoint, far2Point, nearPoint;
 GLdouble MODELSCALE = 1.0;
 GLdouble LIGHTP = 15;
 
-bool scene=true, relief1=false, relief2=false , mesh1=false, mesh2=false, profile1=false, profile2=false, time1=false, time2=false;
+bool scene=true, relief1=false, relief2=false , mesh1=false, mesh2=false, profile0=false, profile1=false, profile2=false, time1=false, time2=false;
 float dynamicRange;
 GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =1;
 GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
@@ -92,7 +94,8 @@ GLfloat threshold = 0.04;
 vector< vector<GLfloat> > heightList, laplaceList;
 vector<GLfloat> maxList;
 const int pyrLevel = 5;
-vector<bool> bgMask, outlineMask;
+vector<bool> bgMask;
+vector<GLfloat> outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
 IplImage *img0;
@@ -109,7 +112,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 2, reference = 0;//; ref1: gradient correction, ref2: histogram
+int method = 0, reference = 1;//; ref1: gradient correction, ref2: histogram
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
 GLdouble projection[16], modelview[16], inverse[16];
@@ -1154,14 +1157,14 @@ void firstLaplace(void)
 			//BuildRelief(laplace, pThreadRelief, pThreadNormal);
 			//mesh1 = true;
 			//relief1 = false;
-			profile1 = true;
+			profile0 = true;
 		}
 
 		if( winHeight || winWidth )
 		{
 			int height = winHeight - boundary*2;
 			int width = heightPyr[0].size() / height;
-			if( profile1 )
+			if( profile0 )
 			{			
 				sceneProfile.clear();
 				
@@ -1175,7 +1178,7 @@ void firstLaplace(void)
 				cvNamedWindow("Scene Profile", 1);
 				cvShowImage("Scene Profile", profileImg);
 
-				profile1 = false;
+				profile0 = false;
 			}
 		}
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
@@ -1200,7 +1203,7 @@ void firstLaplace(void)
 			
 			if(mesh1)
 			{			
-					/*if( profile1 )
+					/*if( profile0 )
 					{			
 						sceneProfile.clear();
 						
@@ -1231,7 +1234,7 @@ void firstLaplace(void)
 						cvNamedWindow("Scene Profile", 1);
 						cvShowImage("Scene Profile", profileImg);
 
-						profile1 = false;
+						profile0 = false;
 					}*/
 
 					/*else
@@ -1730,7 +1733,7 @@ void DrawRelief(vector<GLfloat> src, GLdouble *pThreadRelief, GLdouble *pThreadN
 			int width = src.size() / height;
 			/*if(mesh)
 			{	*/
-				if( profile2 )
+				if( profile1 || profile2 )
 				{
 					reliefProfile.clear();
 					for(int i=0; i < width - 1; i++)
@@ -1755,11 +1758,18 @@ void DrawRelief(vector<GLfloat> src, GLdouble *pThreadRelief, GLdouble *pThreadN
 						}		
 					}
 
+					char *name;
+					static int id;
 					IplImage *profileImg = cvCreateImage( cvSize( width, height*2 ), IPL_DEPTH_8U, 1);
 					DrawProfile(reliefProfile, profileImg);
-					cvNamedWindow("Relief Profile", 1);
-					cvShowImage("Relief Profile", profileImg);
+					int c = _snprintf( NULL, 0, "Relief Profile %d", id+1 );
+					name = new char[ c + 1 ];
+					_snprintf(name, c+1, "Relief Profile %d", id+1);
+					id++;
+					cvNamedWindow(name, 1);
+					cvShowImage(name, profileImg);
 
+					profile1 = false;
 					profile2 = false;
 				}
 				
@@ -2609,6 +2619,183 @@ void intergrate(IplImage *GradX, IplImage *GradY, IplImage *dst)
 	}
 }
 
+void next(int l, int  i, int j, vector<GLfloat> x, vector<GLfloat> y, vector<vector <GLfloat>> &sum, vector<GLfloat> &dst)
+{
+	if( bgMask[j] == 0 && ( outlineMask[j] > l || outlineMask[j] == 0 ) )
+	{
+		if( outlineMask[j] == 0 )
+		{
+			outlineMask[j] = l+1;
+		}
+
+		if(  j == i+1 || j == i-1 )
+		{
+			if( j < i )	dst[j] = dst[i] + y[i];
+			else			dst[j] = dst[i] - y[i];
+		}
+		else
+		{
+			if( j > i )	dst[j] = dst[i] + x[i];
+			else			dst[j] = dst[i] - x[i];
+		}
+
+		sum[j][0] += dst[j];
+		sum[j][1] += 1;
+	}
+}
+
+void intergrate(vector<GLfloat> x, vector<GLfloat> y, vector<GLfloat> &dst)
+{
+	extractOutline( heightPyr[0], outlineMask, 1);
+
+	int width = sqrt( (float) x.size() );
+	int height = sqrt( (float) x.size() );
+
+	dst.clear();
+	vector<vector <GLfloat>> sum;
+	vector<GLfloat> element;
+	element.push_back(0);
+	element.push_back(0);
+	for(int i=0; i< width*height; i++)
+	{
+		dst.push_back(0);
+		sum.push_back(element);
+	}
+	
+	bool first = true;
+	int start, end;
+	for(int i=0; i < width*height; i++)
+	{
+		if( bgMask[i] == 0 && first) 
+		{
+			start = i;
+			first = false;
+		}
+		if( bgMask[i] == 0 ) end=i;
+	}
+
+	for(int l=1; l < width+height-2; l++)
+	{
+		for(int i=start; i <= end; i++)
+		{
+			if( outlineMask[i] == l )
+			{
+				if( i%height - 1 >= 0 ) next(l, i, i-1, x, y, sum, dst);
+				if( i%height + 1 < height ) next(l, i, i+1, x, y, sum, dst);
+				if( i-height >= 0 ) next(l, i, i-height, x, y, sum, dst);
+				if( i/height + 1 < width) next(l, i, i+height, x, y, sum, dst);
+			}
+		}
+	}
+
+	for(int i=start; i <= end; i++)
+	{
+		if( bgMask[i] == 0 && outlineMask[i] != 1 )
+		{
+			dst[i] = sum[i][0] / sum[i][1];
+		}
+	}
+}
+
+void setGaussianKernel( vector<double> &a, int aperture)
+{
+    double sigma = 0.3*(aperture/2 - 1) + 0.8;
+    
+    double mean = aperture/2;
+    double sum = 0;
+    for (int x = 0; x < aperture; x++)
+    {
+        for (int y = 0; y < aperture; y++)
+        {
+            a[ x*aperture + y ] = exp( -0.5 * (pow((x-mean)/sigma, 2.0) + pow((y-mean)/sigma,2.0)) )
+									/ (2 * M_PI * sigma * sigma);
+            sum += a[ x*aperture + y ];
+        }
+    }
+
+    //normalize
+    for(int x = 0; x < aperture; x++)
+    {
+        for (int y = 0; y < aperture; y++)
+        {
+            a[ x*aperture + y ] /= sum;
+        }
+    }
+}
+
+void gaussianFilter(vector<GLfloat> src, vector<GLfloat> &dst)
+{
+	int width = sqrt( (float) src.size() );
+	int  height = sqrt( (float) src.size() );
+
+	dst.clear();
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			dst.push_back( 0 );
+		}
+	}
+
+	vector<double> kernel;
+	vector< vector<double> > kernelList;
+	vector<GLfloat>::iterator first = outlineMask.begin();
+	vector<GLfloat>::iterator last = outlineMask.end();
+	GLint max = *max_element ( first, last );
+	for(int i=2; i <= max; i++)
+	{
+		int aperture = i*2 - 1;
+		for(int j=0; j<aperture*aperture; j++)
+		{
+			kernel.push_back( 0 );
+		}
+		setGaussianKernel( kernel,  aperture );
+		kernelList.push_back( kernel );
+		kernel.clear();
+	}
+	
+
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			if( outlineMask[ i*height + j ]  >= 2 )
+			{
+				int ext = outlineMask[ i*height + j ] - 1;
+				//int ext = (aperture-1) / 2;
+				if(i >= ext  && j >= ext && i+ext < width && j+ext < height)
+				{
+					for(int p=-ext; p <=ext; p++)
+					{
+						for(int q=-ext; q <=ext; q++)
+						{
+							dst[ i*height + j ] += src.at( (i+p)*height + j+q ) * kernelList[ outlineMask[ i*height + j ] - 2 ][ (p+ext)*(ext*2+1) + q+ext ];
+						}
+					}
+				}
+
+				else	//boundary issues
+				{
+					int extU = -ext,extD = ext,extL = -ext,extR = ext;
+					if( ext > j)		extU = -j;
+					if( ext > i)		extL = -i;
+					if( j+ext >= height)		extD = height - 1 - j;
+					if( i+ext >= width)		extR =  width - 1 - i;
+					
+					for(int p=extL; p <= extR; p++)
+					{
+						for(int q=extU; q <= extD; q++)
+						{
+							dst[ i*height + j ] += src.at( (i+p)*height + j+q ) * kernelList[ outlineMask[ i*height + j ] - 2 ][ (p+ext)*(ext*2+1) + q+ext ];
+						}
+					}
+				}
+
+			}
+		}
+	}
+}
+
 void gradientCorrection(IplImage *gradientX, IplImage *gradientY)
 {	
 		//vector<GLfloat> h;
@@ -2641,13 +2828,32 @@ void gradientCorrection(IplImage *gradientX, IplImage *gradientY)
 			//Image2Relief(gradX, h);
 			correct(gradX, gradY, 1.8);
 			//Image2Relief(gradX, h);
-			intergrate(gradX, gradY, intergration);
+			//intergrate(gradX, gradY, intergration);
 			//Image2Relief(intergration, h);
 
-			IplImage *height = cvCreateImage( cvGetSize(intergration), IPL_DEPTH_32F, 1);
+			vector<GLfloat> x, y;
+			Image2Relief(gradX, x);
+			Image2Relief(gradX, y);
+			intergrate(x, y, referenceHeight);
+
+			IplImage *height = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_32F, 1);
+			IplImage *bgImg = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_32F, 1);
+			IplImage *zeroImg = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_32F, 1);
+			IplImage *fgImg = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_8U, 1);
 			//cvConvertScale(intergration, height, 1/255, 0);
 			
-			Image2Relief(intergration, referenceHeight);
+			//Image2Relief(intergration, referenceHeight);
+			/*Relief2Image( referenceHeight, height );
+			Relief2Image( bgMask, bgImg );
+			cvSetZero(zeroImg);
+			cvCmp(bgImg, zeroImg, fgImg, CV_CMP_EQ);
+			height->maskROI = fgImg;
+			cvSmooth(height, height, CV_GAUSSIAN, 55, 55);
+			 
+			Image2Relief(height, referenceHeight);*/
+
+			//bgFilter(referenceHeight, bgMask);
+			gaussianFilter(referenceHeight, referenceHeight);
 
 			vector<GLfloat>::iterator first = referenceHeight.begin();
 			vector<GLfloat>::iterator last = referenceHeight.end();
@@ -3786,7 +3992,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("ramp.obj");
+	MODEL = glmReadOBJ("ramp2.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
