@@ -37,7 +37,7 @@ using namespace std;
 #endif
 
 #define HistogramBins  10000
-#define SIDE 55
+#define SIDE 29
 typedef pair<int, float> P;
 
 float maxf(float a, float b)
@@ -919,7 +919,7 @@ void extractOutline(IplImage *src, IplImage *dst, int boolean=0)
 	}
 }
 
-double compress(double x, double alpha)
+double compress(double x, double alpha=0.5)
 {
 	double c;
 	c = log10(1+alpha*x) / alpha;
@@ -2621,7 +2621,7 @@ void intergrate(IplImage *GradX, IplImage *GradY, IplImage *dst)
 
 void next(int l, int  i, int j, vector<GLfloat> x, vector<GLfloat> y, vector<vector <GLfloat>> &sum, vector<GLfloat> &dst)
 {
-	if( bgMask[j] == 0 && ( outlineMask[j] > l || outlineMask[j] == 0 ) )
+	if( bgMask[j] == 0 && ( outlineMask[j] > l || outlineMask[j] == 0 )  &&  (j%400 == 200 || j%400 == 199))
 	{
 		if( outlineMask[j] == 0 )
 		{
@@ -2693,6 +2693,87 @@ void intergrate(vector<GLfloat> x, vector<GLfloat> y, vector<GLfloat> &dst)
 		if( bgMask[i] == 0 && outlineMask[i] != 1 )
 		{
 			dst[i] = sum[i][0] / sum[i][1];
+		}
+	}
+}
+
+void heightInterpolation(int l, int i, int j, int aperture, vector<GLfloat> &dst)
+{
+	int width = sqrt( (float) heightPyr[0].size() );
+	int height = sqrt( (float) heightPyr[0].size() );
+
+	if( dst[ i*height + j ] == 0 && bgMask[ i*height + j ] == 0 &&  (j%400 == 200 || j%400 == 199))
+	{
+		outlineMask[ i*height + j ] = l + 1;
+		
+		int ext = (aperture-1) / 2;
+		int extU,extD,extL,extR;
+		
+			extU = -ext;
+			extD = ext;
+			extL = -ext;
+			extR = ext;
+		
+			if( ext > j)		extU = -j;
+			if( ext > i)		extL = -i;
+			if( j+ext >= height)		extD = height - 1 - j;
+			if( i+ext >= width)		extR =  width - 1 - i;
+
+		float sum=0, dsum=0;
+		for(int p=extL; p <= extR; p++)
+		{
+			for(int q=extU; q <= extD; q++)
+			{
+				int layer = outlineMask[ (i+p)*height + j+q ];
+				if( layer > 0 && layer < l+1 )
+				{
+					sum += ( /*compress(*/ heightPyr[0][ i*height + j ] - heightPyr[0][ (i+p)*height + j+q ] /*)*/ + dst[ (i+p)*height + j+q ] ) / sqrt( (float) p*p + q*q );
+					dsum += 1 / sqrt( (float) p*p + q*q );
+				}
+			}
+		}
+
+		dsum = 1/dsum;
+		dst[ i*height + j ] = sum*dsum;
+	}
+}
+
+void intergrate(vector<GLfloat> &dst)
+{
+	extractOutline( heightPyr[0], outlineMask, 1);
+
+	int width = sqrt( (float) heightPyr[0].size() );
+	int height = sqrt( (float) heightPyr[0].size() );
+
+	dst.clear();
+	for(int i=0; i< width*height; i++)
+	{
+		dst.push_back(0);
+	}
+	
+	bool first = true;
+	int start, end;
+	for(int i=0; i < width*height; i++)
+	{
+		if( bgMask[i] == 0 && first) 
+		{
+			start = i;
+			first = false;
+		}
+		if( bgMask[i] == 0 ) end=i;
+	}
+
+	for(int l=1; l < width+height-2; l++)
+	{
+		for(int i=start; i <= end; i++)
+		{
+			if( outlineMask[i] == l )
+			{
+				if( i%height - 1 >= 0 ) heightInterpolation(l, i/height, i%height - 1, SIDE, dst);
+				if( i%height + 1 < height ) heightInterpolation(l, i/height, i%height + 1, SIDE, dst);
+				if( i-height >= 0 ) heightInterpolation(l, i/height - 1, i%height, SIDE, dst);
+				if( i/height + 1 < width) heightInterpolation(l, i/height + 1, i%height, SIDE, dst);
+			}
 		}
 	}
 }
@@ -2826,15 +2907,16 @@ void gradientCorrection(IplImage *gradientX, IplImage *gradientY)
 
 			
 			//Image2Relief(gradX, h);
-			correct(gradX, gradY, 1.8);
+			//correct(gradX, gradY, 1.8);
 			//Image2Relief(gradX, h);
 			//intergrate(gradX, gradY, intergration);
 			//Image2Relief(intergration, h);
 
-			vector<GLfloat> x, y;
+			/*vector<GLfloat> x, y;
 			Image2Relief(gradX, x);
 			Image2Relief(gradX, y);
-			intergrate(x, y, referenceHeight);
+			intergrate(x, y, referenceHeight);*/
+			intergrate(referenceHeight);
 
 			IplImage *height = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_32F, 1);
 			IplImage *bgImg = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_32F, 1);
@@ -2853,7 +2935,7 @@ void gradientCorrection(IplImage *gradientX, IplImage *gradientY)
 			Image2Relief(height, referenceHeight);*/
 
 			//bgFilter(referenceHeight, bgMask);
-			gaussianFilter(referenceHeight, referenceHeight);
+			//gaussianFilter(referenceHeight, referenceHeight);
 
 			vector<GLfloat>::iterator first = referenceHeight.begin();
 			vector<GLfloat>::iterator last = referenceHeight.end();
