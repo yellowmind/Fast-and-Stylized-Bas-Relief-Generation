@@ -76,6 +76,7 @@ GLint TICK=0;
 GLMmodel *MODEL;
 CVector3 farPoint, far2Point, nearPoint;
 
+GLint scalingFactor = 16;
 GLdouble MODELSCALE = 1.0;
 GLdouble LIGHTP = 15;
 
@@ -100,7 +101,7 @@ vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
 IplImage *img0;
 //vector<GLfloat> height;
-vector<GLfloat> compressedH, *referenceHeight, sceneProfile, reliefProfile;
+vector<GLfloat> compressedH, referenceHeight, sceneProfile, reliefProfile;
 int boundary =20;
 int disp=0;
 
@@ -1060,7 +1061,7 @@ void BuildRelief(vector<GLfloat> *height, GLdouble *pThreadRelief, GLdouble *pTh
 		}
 }
 
-inline void DrawProfile(vector<GLfloat> src, IplImage *dst, float ratio=0.3)
+inline void DrawProfile(const vector<GLfloat> &src, IplImage *dst, float ratio=0.3)
 {
 	for(int i=0; i < src.size()-1; i++)
 	{
@@ -1212,6 +1213,7 @@ void firstLaplace(void)
 				}
 
 				IplImage *profileImg = cvCreateImage( cvSize( width, height ), IPL_DEPTH_8U, 1);
+				cvSet( profileImg, cvScalar(208) );
 				DrawProfile(sceneProfile, profileImg, 0.9);
 				cvNamedWindow("Scene Profile", 1);
 				cvShowImage("Scene Profile", profileImg);
@@ -1580,7 +1582,7 @@ void redistribute(float h[], float cumulative, float l)
 	}
 }
 
-void equalizeHist(vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gradient=NULL, int aperture=33)
+void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gradient=NULL, int aperture=33)
 {	
 	vector<GLfloat> weight;
 	if( gradient != NULL)
@@ -1607,9 +1609,9 @@ void equalizeHist(vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gradient
 				hist[k] =0;
 			}
 			
-			if(src.at( i*srcHeight + j) == 0)
+			if( src[ i*srcHeight + j ] == 0 )
 			{
-				dst.push_back(0);
+				dst[ i*srcHeight + j ] = 0;
 			}
 
 			else
@@ -1645,7 +1647,7 @@ void equalizeHist(vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gradient
 				
 				/*float test[6] = {0, 50, 100, 200, 150, 100};
 				redistribute(test, 600, 1);*/
-				redistribute(hist, cumulative, 16.0*HistogramBins/10000);
+				redistribute(hist, cumulative, scalingFactor*HistogramBins/10000);
 
 				float sum[ HistogramBins+1 ];
 		
@@ -1670,7 +1672,7 @@ void equalizeHist(vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gradient
 					}
 				}
 				
-				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *HistogramBins) ]  );
+				dst[ i*srcHeight + j ] = sum [ (int) (src[ i*srcHeight + j ]  * HistogramBins) ] ;
 			}
 
 			//dst.clear();
@@ -1704,7 +1706,7 @@ void equalizeHist(vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gradient
 		
 }
 
-void equalizeHist(vector<GLfloat> &src, vector<GLfloat> *dst, IplImage *gradient=NULL, int aperture=33)
+void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> *dst, IplImage *gradient=NULL, int aperture=33)
 {	
 	vector<GLfloat> weight;
 	if( gradient != NULL)
@@ -1830,7 +1832,7 @@ void equalizeHist(vector<GLfloat> &src, vector<GLfloat> *dst, IplImage *gradient
 		
 }
 
-void vectorAdd(vector<GLfloat> &src1, vector<GLfloat> &src2, vector<GLfloat> &dst)
+void vectorAdd(const vector<GLfloat> &src1, const vector<GLfloat> &src2, vector<GLfloat> &dst)
 {
 	if( src1.size() != src2.size() || src2.size() != dst.size() || dst.size() != src1.size() ) return;
 	else
@@ -1854,7 +1856,7 @@ void vectorAdd(vector<GLfloat> *src1, vector<GLfloat> *src2, vector<GLfloat> *ds
 	}
 }
 
-void vectorScale(vector<GLfloat> &src, vector<GLfloat> &dst, float scale)
+void vectorScale(const vector<GLfloat> &src, vector<GLfloat> &dst, float scale)
 {
 	if( src.size() != dst.size() ) return;
 	for(int i=0; i < src.size(); i++)
@@ -1872,7 +1874,7 @@ void vectorScale(vector<GLfloat> *src, vector<GLfloat> *dst, float scale)
 	}
 }
 
-void DrawRelief(vector<GLfloat> src, GLdouble *pThreadRelief, GLdouble *pThreadNormal)
+void DrawRelief(const vector<GLfloat> &src, GLdouble *pThreadRelief, GLdouble *pThreadNormal)
 {
 		glColor3f(0.6, 0.6, 0.6);
 		
@@ -1922,6 +1924,7 @@ void DrawRelief(vector<GLfloat> src, GLdouble *pThreadRelief, GLdouble *pThreadN
 					char *name;
 					static int id;
 					IplImage *profileImg = cvCreateImage( cvSize( width, height*2 ), IPL_DEPTH_8U, 1);
+					cvSet( profileImg, cvScalar(208) );
 					DrawProfile(reliefProfile, profileImg);
 					int c = _snprintf( NULL, 0, "Relief Profile %d", id+1 );
 					name = new char[ c + 1 ];
@@ -2054,6 +2057,7 @@ void DrawRelief(vector<GLfloat> *src, GLdouble *pThreadRelief, GLdouble *pThread
 					char *name;
 					static int id;
 					IplImage *profileImg = cvCreateImage( cvSize( width, height*2 ), IPL_DEPTH_8U, 1);
+					cvSet( profileImg, cvScalar(208) );
 					DrawProfile(reliefProfile, profileImg);
 					int c = _snprintf( NULL, 0, "Relief Profile %d", id+1 );
 					name = new char[ c + 1 ];
@@ -2753,12 +2757,12 @@ void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 			//	}
 			//}
 			int size = heightPyr[0].size();
-			vector<GLfloat> *AHEHeight;
-			AHEHeight = new vector <float>(size);
-			referenceHeight = new vector <float>(size);
+			vector<GLfloat> AHEHeight;
+			AHEHeight.resize(size);
+			referenceHeight.resize(size);
 			for(int i=0; i < size; i++)
 			{
-				referenceHeight->at(i) = 0;
+				referenceHeight[i] = 0;
 			}
 
 			int n=1;
@@ -2767,14 +2771,14 @@ void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 			{
 				equalizeHist(heightPyr[0], AHEHeight, gradient, pow(2.0, k-1) * 8*2 + 1);
 				vectorAdd(referenceHeight, AHEHeight, referenceHeight);
-				AHEHeight->clear();
+				AHEHeight.clear();
 			}
 			//vectorScale(referenceHeight, referenceHeight, 1.0/n);
 
 			
-			for(int i=0; i < referenceHeight->size(); i++)
+			for(int i=0; i < referenceHeight.size(); i++)
 			{
-				float height = referenceHeight->at(i);
+				float height = referenceHeight[i];
 				if( maxHeight < height )
 				{
 					maxHeight = height;
@@ -2785,9 +2789,9 @@ void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 				}
 			}
 			float range = maxHeight - minHeight;
-			for(int i=0; i < referenceHeight->size(); i++)
+			for(int i=0; i < referenceHeight.size(); i++)
 			{
-				referenceHeight->at(i) /*/= HistogramBins*/;
+				referenceHeight[i] /*/= HistogramBins*/;
 			}
 
 			BuildRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
@@ -3276,12 +3280,12 @@ void gradientCorrection(IplImage *gradientX, IplImage *gradientY)
 			//bgFilter(referenceHeight, bgMask);
 			//gaussianFilter(referenceHeight, referenceHeight);
 
-			vector<GLfloat>::iterator first = referenceHeight->begin();
-			vector<GLfloat>::iterator last = referenceHeight->end();
+			vector<GLfloat>::iterator first = referenceHeight.begin();
+			vector<GLfloat>::iterator last = referenceHeight.end();
 			GLfloat max = *max_element ( first, last );
-			for(int i=0; i< referenceHeight->size(); i++)
+			for(int i=0; i< referenceHeight.size(); i++)
 			{
-				referenceHeight->at(i) /= max; //normalize
+				referenceHeight[i] /= max; //normalize
 			}
 
 			BuildRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
@@ -4219,7 +4223,12 @@ void myKeys(unsigned char key, int x, int y)
 				glGetDoublev(GL_MODELVIEW_MATRIX, TRACKM);
 			glPopMatrix();	 
 			break;*/
-
+		case 'l':
+			if( scalingFactor >= 2 )
+			{
+				scalingFactor /= 2;
+			}
+			break;
 		case 'a':
 			MODELSCALE += 0.5;
 			break;
@@ -4413,7 +4422,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("ramp2.obj");
+	MODEL = glmReadOBJ("caesar1.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
