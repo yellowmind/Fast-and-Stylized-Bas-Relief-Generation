@@ -36,7 +36,7 @@ using namespace std;
 #define true 1
 #endif
 
-#define HistogramBins  10000
+#define HistogramBins  1000
 #define SIDE 29
 typedef pair<int, float> P;
 
@@ -51,6 +51,11 @@ float minf(float a, float b)
 inline float round( float d )
 {
 	return floor( d + 0.5 );
+}
+inline double log2(double x)
+{
+      static const double xxx = 1.0/log(2.0);
+      return log(x)*xxx;
 }
 
 #ifndef M_PI
@@ -91,10 +96,10 @@ GLfloat lightPos1[] = { -25.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
 GLfloat lightPos2[] = { -27.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
 GLfloat lightPos21[] = { -29.f, -10.0f, outputHeight*81.25 + 0.4375, 1.0f };
 
-GLfloat threshold = 0.04;
+GLfloat threshold = 0.1;
 vector< vector<GLfloat> > heightList, laplaceList;
 vector<GLfloat> maxList;
-const int pyrLevel = 5;
+const int pyrLevel = 3;
 vector<bool> bgMask;
 vector<GLfloat> outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
@@ -113,7 +118,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 0, reference = 2;//; ref1: gradient correction, ref2: histogram
+int method = 3, reference = 3;//; ref1: gradient correction, ref2: histogram
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
 GLdouble projection[16], modelview[16], inverse[16];
@@ -1584,6 +1589,134 @@ void redistribute(float h[], float cumulative, float l)
 
 void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gradient=NULL, int aperture=33)
 {	
+	int srcHeight = sqrt( (float)src.size() );
+	
+	vector<GLfloat> weight;
+	if( gradient != NULL)
+	{		
+		if( srcHeight != gradient->height || srcHeight != gradient->width ) return;
+
+		compress(gradient);
+		Image2Relief(gradient, weight);
+	}
+
+	int ext = (aperture-1) / 2;
+	/*if( gradient != NULL)
+	{
+		gradientWeight(weight, ext);
+	}*/
+	
+	
+	for(int i=0; i< srcHeight; i++)
+	{
+		//#pragma omp parallel for private(hist)
+		for(int j=0; j< srcHeight; j++)
+		{
+			float hist[ HistogramBins+1 ];
+			for(int k=0; k<= HistogramBins; k++)
+			{
+				hist[k] =0;
+			}
+			
+			if( src[ i*srcHeight + j ] == 0 )
+			{
+				dst[ i*srcHeight + j ] = 0;
+			}
+
+			else
+			{
+				int extU = -ext,extD = ext,extL = -ext,extR = ext;
+				
+					if( ext > j)		extL = -j;
+					if( ext > i)		extU = -i;
+					if( j+ext >= srcHeight)		extR = srcHeight - 1 - j;
+					if( i+ext >= srcHeight)		extD = srcHeight - 1 - i;					
+
+				for(int p=extU; p <= extD; p++)
+				{
+						//#pragma omp parallel for
+						for(int q=extL; q <= extR; q++)
+						{
+							if( gradient == NULL)
+							{
+								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += 1;
+							}
+							else
+							{
+								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += weight[ (i+p)*srcHeight + j+q ] * distanceWeight(i, j, i+p, j+q, ext);;
+							}
+						}
+				}
+
+				float cumulative =  0;
+				for(int bin=1; bin < HistogramBins+1; bin++)
+				{
+					cumulative += hist[bin];
+				}
+				
+				/*float test[6] = {0, 50, 100, 200, 150, 100};
+				redistribute(test, 600, 1);*/
+				redistribute(hist, cumulative, scalingFactor*HistogramBins/10000);
+
+				float sum[ HistogramBins+1 ];
+		
+				
+				for(int bin=0; bin < src[ i*srcHeight + j] * HistogramBins + 1; bin++)
+				{
+					if( bin <= 1 )
+					{
+						sum[bin] = 0;
+						//sum[bin] =  hist[bin] * 1000 /  number;
+						/*cout << "Sum " << sum[i] << std::endl;
+						sum2[i] =  cvGetReal1D(lHist1->bins, i);*/
+					}
+					else if( bin == 2)
+					{
+						sum[bin] = sum[bin-1] + ( hist[2] - hist[1]) /* *HistogramBins*/ / cumulative;
+					}
+					else
+					{
+						sum[bin] = sum[bin-1] + hist[bin] /* *HistogramBins*/  / cumulative;
+						//sum2[i] = sum2[i-1] + cvGetReal1D(lHist1->bins, i);
+					}
+				}
+				
+				dst[ i*srcHeight + j ] = sum [ (int) (src[ i*srcHeight + j ]  * HistogramBins) ] ;
+			}
+
+			//dst.clear();
+			/*if(src.at( i*srcHeight + j) == 0)
+			{
+				dst.push_back(0);
+			}
+			else
+			{
+				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
+			}*/
+		}
+	}
+	
+	
+	
+	/*for(int i=0; i< srcHeight; i++)
+	{
+		for(int j=0; j< srcHeight; j++)
+		{		
+			if(src.at( i*srcHeight + j) == 0)
+			{
+				dst.push_back(0);
+			}
+			else
+			{
+				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *HistogramBins) ]  );
+			}
+		}
+	}*/
+		
+}
+
+void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing = 16, IplImage *gradient=NULL, int aperture=33)
+{	
 	vector<GLfloat> weight;
 	if( gradient != NULL)
 	{		
@@ -1598,10 +1731,10 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gr
 	}*/
 	
 	int srcHeight = sqrt( (float)src.size() );
-	for(int i=0; i< srcHeight; i++)
+	for(int i=spacing/2; i< srcHeight; i+=spacing)
 	{
 		//#pragma omp parallel for private(hist)
-		for(int j=0; j< srcHeight; j++)
+		for(int j=spacing/2; j< srcHeight; j+=spacing)
 		{
 			float hist[ HistogramBins+1 ];
 			for(int k=0; k<= HistogramBins; k++)
@@ -1687,7 +1820,24 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gr
 		}
 	}
 	
-	
+	IplImage *srcImg = cvCreateImage( cvSize(gradient->width/spacing, gradient->height/spacing), IPL_DEPTH_32F, 1);
+
+	for(int i=0; i< srcHeight/spacing; i++)
+	{
+		for(int j=0; j< srcHeight/spacing; j++)
+		{
+			cvSetReal2D(srcImg, srcHeight/spacing - 1 - j, i, dst[ (i+0.5)*spacing*srcHeight + (j+0.5)*spacing ] );
+		}
+	}
+
+	for(int i=1; i <= (int) log2( (double)spacing ); i++)
+	{
+		IplImage *dstImg = cvCreateImage( cvSize(srcImg->width*2, srcImg->height*2), IPL_DEPTH_32F, 1);
+		cvPyrUp(srcImg, dstImg);
+		srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+		cvCopy(dstImg, srcImg);
+	}
+	Image2Relief(srcImg, dst);
 	
 	/*for(int i=0; i< srcHeight; i++)
 	{
@@ -2198,7 +2348,7 @@ void BilateralDetailBase(void)
 			//BuildRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
 			
 			//heightList.push_back(height);
-			vector<GLfloat> height2, upHeight, laplace[pyrLevel - 1];
+			vector<GLfloat> height2, upHeight/*, laplace[pyrLevel - 1]*/;
 			IplImage *img, *img2, *imgGa, *imgLa, *bgImg, *base_img, *detail_img;
 			/*subSample(heightList.at(0), height2);
 			heightList.push_back(height2);*/
@@ -2210,17 +2360,17 @@ void BilateralDetailBase(void)
 			laplacianFilter(height[2], *laplace);
 			laplaceList.push_back(*laplace);*/
 			IplImage *tempImg;
-			for(int i=1;i< pyrLevel - 1;i++)
-			{
-				/*tempImg = cvCreateImage( cvSize(imgPyr[i]->width, imgPyr[i]->height), IPL_DEPTH_32F, 1);
-				cvGetImage(imgPyr[i], tempImg);
-				Image2Relief(tempImg, height[i]);
-				laplacianFilter(height[i], laplace);
-				laplaceList.push_back(laplace);*/
-				laplacianFilter(heightPyr[i], laplace[i]);
-				laplaceList.push_back(laplace[i]);
-				recordMax(laplace[i]);
-			}
+			//for(int i=1;i< pyrLevel - 1;i++)
+			//{
+			//	/*tempImg = cvCreateImage( cvSize(imgPyr[i]->width, imgPyr[i]->height), IPL_DEPTH_32F, 1);
+			//	cvGetImage(imgPyr[i], tempImg);
+			//	Image2Relief(tempImg, height[i]);
+			//	laplacianFilter(height[i], laplace);
+			//	laplaceList.push_back(laplace);*/
+			//	laplacianFilter(heightPyr[i], laplace[i]);
+			//	laplaceList.push_back(laplace[i]);
+			//	recordMax(laplace[i]);
+			//}
 			
 			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
 			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
@@ -2509,16 +2659,16 @@ void linearCompressedBase(void)
 		
 		//GLfloat maxDepth=0,minDepth=1;
 		
-			vector<GLfloat> height2, upHeight, laplace[pyrLevel - 1];
+			//vector<GLfloat> laplace[pyrLevel - 1];
 			IplImage *img, *img2, *imgGa, *imgLa, *bgImg, *base_img, *detail_img;
 			
 			IplImage *tempImg;
-			for(int i=1;i< pyrLevel - 1;i++)
+			/*for(int i=1;i< pyrLevel - 1;i++)
 			{
 				laplacianFilter(heightPyr[i], laplace[i]);
 				laplaceList.push_back(laplace[i]);
 				recordMax(laplace[i]);
-			}
+			}*/
 			
 			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
 			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
@@ -2671,7 +2821,151 @@ void linearCompressedBase(void)
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
 }
 
-void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
+void histogramBase(vector<GLfloat> &src, IplImage *gradientX, IplImage *gradientY, int level=0, float weight=0.5)
+{	
+	
+	/*OpenglLine(0, 0, 0, 3, 0, 0);
+	glColor3f(0, 1, 0);
+	OpenglLine(0, 0, 0, 0, 3, 0);
+	glColor3f(0, 0, 1);
+	OpenglLine(0, 0, 0, 0, 0, 3);*/ 
+		
+		
+		//GLfloat maxDepth=0,minDepth=1;
+		float maxHeight=0, minHeight=HistogramBins;
+		/*if(relief2)
+		{*/
+			IplImage *gradX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+			IplImage *gradY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
+			cvConvertScale(gradientX, gradX, 1, 0);
+			cvConvertScale(gradientY, gradY, 1, 0);
+			cvPow(gradX, gradX, 2);
+			cvPow(gradY, gradY, 2);
+
+			IplImage *gradient = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+			cvAdd(gradX, gradY, gradient);
+			cvPow(gradient, gradient, 0.5);		
+
+			IplImage *outlineImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
+			extractOutline(img0, outlineImg, 1);
+			bgFilter(gradient, outlineImg);
+
+			IplImage *bgImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
+			Relief2Image( bgMask, bgImg);
+			bgFilter(gradient, bgImg);
+			
+			int size = src.size();
+			vector<GLfloat> AHEHeight;
+			AHEHeight.resize(size);
+			compressedH.resize(size);
+			for(int i=0; i < size; i++)
+			{
+				compressedH[i] = 0;
+			}
+
+			int n=1;
+			//#pragma omp parallel for private(AHEHeight)
+			/*for(int k=1; k <= n; k++)
+			{
+				equalizeHist(sampleHeight, AHEHeight, gradient, pow(2.0, k-1) * 8*2/pow(2.0, level) + 1);
+				vectorAdd(referenceHeight, AHEHeight, referenceHeight);
+				AHEHeight.clear();
+			}
+			Relief2Image(sampleHeight, srcImg);
+
+			for(int i=1;i <= level;i++)
+			{
+				IplImage *dstImg = cvCreateImage( cvSize(srcImg->width*2, srcImg->height*2), IPL_DEPTH_32F, 1);
+				cvPyrUp(srcImg, dstImg);
+				srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+				cvCopy(dstImg, srcImg);
+			}
+			Image2Relief(srcImg, referenceHeight);*/
+			for(int k=1; k <= n; k++)
+			{
+				equalizeHist(src, AHEHeight, pow(2.0, level), gradient, pow(2.0, k-1) * 8*2 + 1);
+				vectorAdd(compressedH, AHEHeight, compressedH);
+				AHEHeight.clear();
+			}
+			//vectorScale(compressedH, compressedH, 1.0/n);
+			
+			IplImage *img, *img2, *imgGa;
+			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
+			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
+			img = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
+			/*****	laplacian layer	*****/			
+			IplImage *imgLa = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);	
+			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa);
+			
+			//cvAdd(imgGa, imgLa, img);
+			cvCopy(imgLa, img);
+			for(int i=pyrLevel - 2; i > 0; i--)
+			{
+				width = imgPyr[i]->width;
+				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+				img2 = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				cvSetZero(img2);
+				imgLa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+
+				cvPyrUp(img, img2);	//upsample the smallest laplace
+				Relief2Image(laplaceList.at(i-1), imgLa);
+
+				img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				cvAdd(img2, imgLa, img);
+				//cvCopy(img2, img);
+				/*Image2Relief(img2, compressedH);
+				reliefAdd( *compressedH, laplaceList.at(i) );*/
+				img2 = cvCreateImage( cvGetSize( img ), IPL_DEPTH_8U, 1);
+				cvConvertScaleAbs(img, img2, 128, 128);
+				char a[15];
+				sprintf(a,"%d", i);
+				cvNamedWindow(a, 1);
+				cvShowImage(a, img2);
+			}
+			/*****	laplacian layer	*****/
+
+			imgGa = cvCreateImage( cvGetSize( img ), IPL_DEPTH_32F, 1);
+			Relief2Image(compressedH, imgGa);
+
+			double *baseMin, *baseMax, *detailMin, *detailMax;
+			cvMinMaxLoc(imgGa, baseMin, baseMax);
+			cvMinMaxLoc(img, detailMin, detailMax);
+			cvConvertScale(imgGa, imgGa, weight*(*baseMax+*detailMax) / (*baseMax) );
+			cvConvertScale(img, img, (1 - weight)*(*baseMax+*detailMax) / (*detailMax) );
+
+			cvAdd(img, imgGa, img);
+			Image2Relief(img, compressedH);
+
+			bgFilter(compressedH, bgMask);
+
+			for(int i=0; i < compressedH.size(); i++)
+			{
+				float height = compressedH[i];
+				if( maxHeight < height )
+				{
+					maxHeight = height;
+				}
+				if( minHeight > height && height !=0 )
+				{
+					minHeight = height;
+				}
+			}
+			float range = maxHeight - minHeight;
+			for(int i=0; i < compressedH.size(); i++)
+			{
+				compressedH[i] /= range;
+			}
+
+			BuildRelief(compressedH, pThreadRelief, pThreadNormal);
+			
+			relief1 = false;
+			mesh1 = true;
+			profile1 = true;
+		//}
+		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
+}
+
+void reliefHistogram(vector<GLfloat> &src, IplImage *gradientX, IplImage *gradientY, int level=0)
 {	
 	
 	/*OpenglLine(0, 0, 0, 3, 0, 0);
@@ -2696,14 +2990,26 @@ void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 			cvAdd(gradX, gradY, gradient);
 			cvPow(gradient, gradient, 0.5);
 
-			IplImage *outlineImg = cvCreateImage( cvGetSize(gradient), IPL_DEPTH_32F, 1);
-			IplImage *bgImg = cvCreateImage( cvGetSize(gradient), IPL_DEPTH_32F, 1);
+			IplImage *img = cvCreateImage( cvSize(img0->width, img0->height), IPL_DEPTH_32F, 1);
+			cvCopy(img0, img);
+			for(int i=1;i <=level; i++)
+			{
+				IplImage *dstImg = cvCreateImage( cvSize(img->width/2, img->height/2), IPL_DEPTH_32F, 1);
+				cvPyrDown(img, dstImg);
+				img = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+				cvCopy(dstImg, img);
+			}
 
-			extractOutline(img0, outlineImg, 1);
+			IplImage *outlineImg = cvCreateImage( cvGetSize(img), IPL_DEPTH_32F, 1);
+			extractOutline(img, outlineImg, 1);
 			bgFilter(gradient, outlineImg);
 
-			Relief2Image( bgMask, bgImg );
+			IplImage *bgImg = cvCreateImage( cvGetSize(img), IPL_DEPTH_8U, 1);
+			IplImage *zeroImg = cvCreateImage( cvGetSize(img), IPL_DEPTH_32F, 1);
+			cvSetZero(zeroImg);
+			cvCmp(img, zeroImg, bgImg, CV_CMP_EQ);
 			bgFilter(gradient, bgImg);
+
 		//	disp++;
 		//	height.clear();
 		//	
@@ -2756,7 +3062,64 @@ void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 			//		height.at(i) = 1 - height.at(i);	//transfer depth to height
 			//	}
 			//}
-			int size = heightPyr[0].size();
+
+			/*IplImage *srcImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
+			cvCopy(img0, srcImg);
+
+			int level = 2;
+			for(int i=1;i <= level;i++)
+			{
+				IplImage *dstImg = cvCreateImage( cvSize(srcImg->width/2, srcImg->height/2), IPL_DEPTH_32F, 1);
+				cvPyrDown(srcImg, dstImg);
+				srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+				cvCopy(dstImg, srcImg);
+			}
+			vector<GLfloat> sampleHeight;
+			Image2Relief(srcImg, sampleHeight);
+
+			IplImage *Img =  cvCreateImage( cvGetSize(srcImg),  IPL_DEPTH_8U, 1);
+			cvConvertScaleAbs(srcImg, Img, 255, 0);
+
+			IplImage *sampleX =  cvCreateImage( cvGetSize(srcImg),  IPL_DEPTH_16S, 1);
+			IplImage *sampleY =  cvCreateImage( cvGetSize(srcImg),  IPL_DEPTH_16S, 1);
+			cvSobel( Img, sampleX, 1, 0);
+			cvSobel( Img, sampleY, 0, 1);
+
+			IplImage *gradX = cvCreateImage( cvGetSize(srcImg), IPL_DEPTH_64F, 1);
+			IplImage *gradY = cvCreateImage( cvGetSize(srcImg), IPL_DEPTH_64F, 1);
+			cvConvertScale(sampleX, gradX, 1, 0);
+			cvConvertScale(sampleY, gradY, 1, 0);
+			cvPow(gradX, gradX, 2);
+			cvPow(gradY, gradY, 2);
+
+			IplImage *gradient = cvCreateImage( cvGetSize(srcImg), IPL_DEPTH_64F, 1);
+			cvAdd(gradX, gradY, gradient);
+			cvPow(gradient, gradient, 0.5);
+
+			IplImage *outlineImg = cvCreateImage( cvGetSize(srcImg), IPL_DEPTH_32F, 1);
+			IplImage *bgImg = cvCreateImage( cvGetSize(srcImg), IPL_DEPTH_32F, 1);
+
+			extractOutline(srcImg, outlineImg, 1);
+			bgFilter(gradient, outlineImg);
+
+			int height = srcImg->height;
+			for(int i=0; i < srcImg->width; i++)
+			{
+				for(int j=0; j < height; j++)
+				{
+					if( sampleHeight[ i*height + j ] )
+					{
+						cvSetReal2D( bgImg, height - 1 - j, i, 1 );
+					}
+					else
+					{
+						cvSetReal2D( bgImg, height - 1 - j, i, 0 );
+					}
+				}
+			}
+			bgFilter(gradient, bgImg);*/
+			
+			int size = src.size();
 			vector<GLfloat> AHEHeight;
 			AHEHeight.resize(size);
 			referenceHeight.resize(size);
@@ -2767,15 +3130,49 @@ void reliefHistogram(IplImage *gradientX, IplImage *gradientY)
 
 			int n=1;
 			//#pragma omp parallel for private(AHEHeight)
+			/*for(int k=1; k <= n; k++)
+			{
+				equalizeHist(sampleHeight, AHEHeight, gradient, pow(2.0, k-1) * 8*2/pow(2.0, level) + 1);
+				vectorAdd(referenceHeight, AHEHeight, referenceHeight);
+				AHEHeight.clear();
+			}
+			Relief2Image(sampleHeight, srcImg);
+
+			for(int i=1;i <= level;i++)
+			{
+				IplImage *dstImg = cvCreateImage( cvSize(srcImg->width*2, srcImg->height*2), IPL_DEPTH_32F, 1);
+				cvPyrUp(srcImg, dstImg);
+				srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+				cvCopy(dstImg, srcImg);
+			}
+			Image2Relief(srcImg, referenceHeight);*/
 			for(int k=1; k <= n; k++)
 			{
-				equalizeHist(heightPyr[0], AHEHeight, gradient, pow(2.0, k-1) * 8*2 + 1);
+				equalizeHist(src, AHEHeight, gradient, pow(2.0, k-1) * 8*2 + 1);
 				vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 				AHEHeight.clear();
 			}
 			//vectorScale(referenceHeight, referenceHeight, 1.0/n);
 
-			
+			if(level)
+			{
+				int side = sqrt( (float)size );
+				IplImage *srcImg = cvCreateImage( cvSize(side, side), IPL_DEPTH_32F, 1);
+				Relief2Image(referenceHeight, srcImg);
+
+				for(int i=1;i <=level; i++)
+				{
+					IplImage *dstImg = cvCreateImage( cvSize(srcImg->width*2, srcImg->height*2), IPL_DEPTH_32F, 1);
+					cvPyrUp(srcImg, dstImg);
+					srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+					cvCopy(dstImg, srcImg);
+				}
+
+				Image2Relief(srcImg, referenceHeight);
+			}
+
+			bgFilter(referenceHeight, bgMask);
+
 			for(int i=0; i < referenceHeight.size(); i++)
 			{
 				float height = referenceHeight[i];
@@ -4009,11 +4406,20 @@ void display(void)
 		glMultMatrixd(TRACKM);
 		//glTranslated(-0.2, 0, 0);
 
-		if( relief1)
+		if( relief1 )
 		{
 			time1 = true;
 			total_time1 = 0;
 			start_time1 = clock();
+
+			vector<GLfloat> laplace[pyrLevel - 1];
+			
+			for(int i=1;i< pyrLevel - 1;i++)
+			{
+				laplacianFilter(heightPyr[i], laplace[i]);
+				laplaceList.push_back(laplace[i]);
+				recordMax(laplace[i]);
+			}
 
 			if( method == 1 )		//F1
 			{	
@@ -4023,7 +4429,19 @@ void display(void)
 			{
 				linearCompressedBase();
 			}
-			else	//F3
+			else if( method == 3 )		//F3
+			{
+				IplImage *Image =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				cvConvertScaleAbs(img0, Image, 255, 0);
+
+				IplImage *gradientX =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_16S, 1);
+				IplImage *gradientY =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_16S, 1);
+				cvSobel( Image, gradientX, 1, 0);
+				cvSobel( Image, gradientY, 0, 1);
+				
+				histogramBase(heightPyr[0], gradientX, gradientY, pyrLevel-1, 0.5 );
+			}
+			else	//F4
 			{
 				relief1 = false;
 			}
@@ -4076,9 +4494,24 @@ void display(void)
 			}
 			else if( reference == 2 )	//F10
 			{
-				reliefHistogram(gradientX, gradientY);
+				reliefHistogram(heightPyr[0], gradientX, gradientY);
 			}
-			else
+			else if( reference == 3 )	//F11
+			{
+				int side = sqrt( (float)heightPyr[2].size() );
+				IplImage *img = cvCreateImage( cvSize(side, side), IPL_DEPTH_32F, 1);
+				Relief2Image(heightPyr[2], img);
+				Image =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_8U, 1);
+				cvConvertScaleAbs(img, Image, 255, 0);
+
+				gradientX =  cvCreateImage( cvGetSize(Image),  IPL_DEPTH_16S, 1);
+				gradientY =  cvCreateImage( cvGetSize(Image),  IPL_DEPTH_16S, 1);
+				cvSobel( Image, gradientX, 1, 0);
+				cvSobel( Image, gradientY, 0, 1);
+				
+				reliefHistogram(heightPyr[2], gradientX, gradientY, 2);
+			}
+			else	//F12
 			{
 			}
 		}
@@ -4360,11 +4793,17 @@ void SpecialKeys(int key, int x, int y)
 		case GLUT_KEY_F3:
 			method = 3;
 			break;
+		case GLUT_KEY_F4:
+			method = 0;
+			break;
 		case GLUT_KEY_F9:
 			reference = 1;
 			break;
 		case GLUT_KEY_F10:
 			reference = 2;
+			break;
+		case GLUT_KEY_F11:
+			reference = 3;
 			break;
 		case GLUT_KEY_F12:
 			reference = 0;
@@ -4422,7 +4861,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("caesar1.obj");
+	MODEL = glmReadOBJ("asain dragon.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
