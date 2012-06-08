@@ -96,10 +96,13 @@ GLfloat lightPos1[] = { -25.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
 GLfloat lightPos2[] = { -27.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
 GLfloat lightPos21[] = { -29.f, -10.0f, outputHeight*81.25 + 0.4375, 1.0f };
 
-GLfloat threshold = 0.1;
+GLfloat threshold = 0.04;
 vector< vector<GLfloat> > heightList, laplaceList;
 vector<GLfloat> maxList;
-const int pyrLevel = 3;
+const int pyrLevel = 5;
+float alpha[5] = {1, 1, 1, 1, 1};
+float beta[5] = {0.5, 0.5, 0.5, 0.5, 0.5};
+
 vector<bool> bgMask;
 vector<GLfloat> outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
@@ -118,7 +121,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 3, reference = 3;//; ref1: gradient correction, ref2: histogram
+int method = 3, reference = 0;//; ref1: gradient correction, ref2: histogram
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
 GLdouble projection[16], modelview[16], inverse[16];
@@ -673,6 +676,62 @@ GLfloat sign(GLfloat value)
 	else return 0;
 }
 
+double compress(double x, double alpha=0.5)
+{
+	double c;
+	c = log10(1+alpha*x) / alpha;
+	return c;
+}
+
+void compress(IplImage *src, float alpha=0.5)
+{
+	//IplImage *sign = cvCreateImage( cvGetSize(src), IPL_DEPTH_64F, 1);
+
+	int width =src->width;
+	int height = src->height;
+
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			double value = cvGetReal2D( src, j, i);
+			if( value == 0)
+			{
+			}
+			else if( value >0 )
+			{
+				//cvSetReal2D( sign, j, i, 1 );
+				cvSetReal2D( src, j, i, log10( value*alpha + 1 ) / alpha );
+			}
+			else
+			{
+				//cvSetReal2D( sign, j, i, -1 );
+				cvSetReal2D( src, j, i, -log10( -value*alpha + 1 ) / alpha );
+			}
+		}
+	}
+
+	/*int absMask = 0x7fffffff;
+	cvAndS(&src, cvRealScalar(*(float*)&absMask), &src, 0);*/
+	//cvConvertScale(src, src, alpha, 1);
+	//cvLog(src, src);
+	/*cvConvertScale(src, src, 1/alpha, 0);*/
+
+	//cvMul(src, sign, src, 1/alpha);
+}
+
+double compress(double x, double alpha, int n)
+{
+	double c;
+	for(int i=0; i<n; i++)
+	{
+		c = log( 1 + alpha*abs(x) ) / alpha;
+		if(c < 0) break;
+		x = c;
+	}
+	return c;
+}
+
 GLfloat fdetail(GLfloat delta, GLfloat alpha)
 {
 	return pow(delta, alpha);
@@ -683,7 +742,18 @@ GLfloat fedge(GLfloat delta, GLfloat beta)
 	return delta*beta;
 }
 
-void remapping(vector<GLfloat> &dst, GLfloat g, GLfloat threshold, GLfloat alpha, GLfloat beta=0)	//general remapping
+//GLfloat fedge(GLfloat delta, GLfloat beta)
+//{
+//	return compress( delta, beta );
+//}
+
+//GLfloat fedge(GLfloat delta, GLfloat beta)
+//{
+//	return compress( delta+threshold, beta ) - compress( threshold, beta );
+//}
+
+
+void remapping(vector<GLfloat> &dst, GLfloat g, GLfloat threshold, GLfloat alpha, GLfloat beta=0.25)	//general remapping
 {
 	
 	for(int k=0; k < dst.size(); k++)
@@ -717,7 +787,7 @@ void updateLaplace(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat*> 
 	}
 }
 
-void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, int aperture=7)
+void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, float alpha, float beta, int aperture=7)
 {
 	int width = sqrt( (float) src.size() );
 	int  height = sqrt( (float) src.size() );
@@ -778,7 +848,7 @@ void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, int aperture=7)
 			}*/
 			//Remapping
 			float g = src.at( i*height + j );
-			remapping(sub, g, threshold, 0.25, 0);
+			remapping(sub, g, threshold, alpha, beta);
 			/*for(int k=0; k < sub.size(); k++)
 			{			
 				sub[k] = minf( maxf( sub.at(k), g - threshold), g + threshold );
@@ -925,61 +995,7 @@ void extractOutline(IplImage *src, IplImage *dst, int boolean=0)
 	}
 }
 
-double compress(double x, double alpha=0.5)
-{
-	double c;
-	c = log10(1+alpha*x) / alpha;
-	return c;
-}
 
-void compress(IplImage *src, float alpha=0.5)
-{
-	//IplImage *sign = cvCreateImage( cvGetSize(src), IPL_DEPTH_64F, 1);
-
-	int width =src->width;
-	int height = src->height;
-
-	for(int i=0; i < width; i++)
-	{
-		for(int j=0; j < height; j++)
-		{
-			double value = cvGetReal2D( src, j, i);
-			if( value == 0)
-			{
-			}
-			else if( value >0 )
-			{
-				//cvSetReal2D( sign, j, i, 1 );
-				cvSetReal2D( src, j, i, log10( value*alpha + 1 ) / alpha );
-			}
-			else
-			{
-				//cvSetReal2D( sign, j, i, -1 );
-				cvSetReal2D( src, j, i, -log10( -value*alpha + 1 ) / alpha );
-			}
-		}
-	}
-
-	/*int absMask = 0x7fffffff;
-	cvAndS(&src, cvRealScalar(*(float*)&absMask), &src, 0);*/
-	//cvConvertScale(src, src, alpha, 1);
-	//cvLog(src, src);
-	/*cvConvertScale(src, src, 1/alpha, 0);*/
-
-	//cvMul(src, sign, src, 1/alpha);
-}
-
-double compress(double x, double alpha, int n)
-{
-	double c;
-	for(int i=0; i<n; i++)
-	{
-		c = log( 1 + alpha*abs(x) ) / alpha;
-		if(c < 0) break;
-		x = c;
-	}
-	return c;
-}
 
 
 
@@ -1180,7 +1196,7 @@ void firstLaplace(void)
 			//upSample(height2, upHeight);
 			//reliefSub(height, upHeight, laplace);
 
-			laplacianFilter(heightPyr[0], laplace);
+			laplacianFilter(heightPyr[0], laplace, alpha[0], beta[0]);
 			laplaceList.clear();
 			laplaceList.push_back(laplace);
 
@@ -2883,7 +2899,7 @@ void histogramBase(vector<GLfloat> &src, IplImage *gradientX, IplImage *gradient
 			Image2Relief(srcImg, referenceHeight);*/
 			for(int k=1; k <= n; k++)
 			{
-				equalizeHist(src, AHEHeight, pow(2.0, level), gradient, pow(2.0, k-1) * 8*2 + 1);
+				equalizeHist(src, AHEHeight, pow(2.0, level), gradient, pow(2.0, k-1) * 2*2 + 1);
 				vectorAdd(compressedH, AHEHeight, compressedH);
 				AHEHeight.clear();
 			}
@@ -3148,7 +3164,7 @@ void reliefHistogram(vector<GLfloat> &src, IplImage *gradientX, IplImage *gradie
 			Image2Relief(srcImg, referenceHeight);*/
 			for(int k=1; k <= n; k++)
 			{
-				equalizeHist(src, AHEHeight, gradient, pow(2.0, k-1) * 8*2 + 1);
+				equalizeHist(src, AHEHeight, gradient, pow(2.0, k-1) * 2*2 + 1);
 				vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 				AHEHeight.clear();
 			}
@@ -4413,10 +4429,12 @@ void display(void)
 			start_time1 = clock();
 
 			vector<GLfloat> laplace[pyrLevel - 1];
+
+			
 			
 			for(int i=1;i< pyrLevel - 1;i++)
 			{
-				laplacianFilter(heightPyr[i], laplace[i]);
+				laplacianFilter(heightPyr[i], laplace[i], alpha[i], beta[i]);
 				laplaceList.push_back(laplace[i]);
 				recordMax(laplace[i]);
 			}
@@ -4512,7 +4530,31 @@ void display(void)
 				reliefHistogram(heightPyr[2], gradientX, gradientY, 2);
 			}
 			else	//F12
-			{
+			{		
+				referenceHeight.resize( heightPyr[pyrLevel-1].size() );
+
+				float side = sqrt( (float) heightPyr[pyrLevel-1].size() );
+				IplImage *srcImg = cvCreateImage( cvSize(side, side), IPL_DEPTH_32F, 1);
+				Relief2Image(heightPyr[pyrLevel-1], srcImg);
+				
+				for(int i=pyrLevel-1; i>0; i--)
+				{			
+					IplImage *dstImg = cvCreateImage( cvSize(srcImg->width*2, srcImg->height*2), IPL_DEPTH_32F, 1);
+					cvPyrUp(srcImg, dstImg);
+					srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+					cvCopy(dstImg, srcImg);
+				}
+				Image2Relief(srcImg, referenceHeight);
+			
+				/*for(int i=0; i<heightPyr[pyrLevel-1].size(); i++)
+				{
+					referenceHeight[i] = heightPyr[pyrLevel-1][i];
+				}*/
+				BuildRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
+
+				relief2 = false;
+				mesh2 = true;
+				profile2 = true;
 			}
 		}
 
