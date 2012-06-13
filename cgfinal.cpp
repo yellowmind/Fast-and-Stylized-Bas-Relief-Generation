@@ -93,13 +93,14 @@ GLdouble outputHeight = 0.05;//0.05;
 
 GLfloat lightPos0[] = { -15.f, 15.0f, 15.0, 1.0f };
 GLfloat lightPos1[] = { -25.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
+GLfloat lightPos11[] = { 25.f, -15.0f, /*3131/*/(outputHeight*81.25 + 0.4375), 1.0f };
 GLfloat lightPos2[] = { -27.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
-GLfloat lightPos21[] = { -29.f, -10.0f, outputHeight*81.25 + 0.4375, 1.0f };
+GLfloat lightPos21[] = { 27.f, -15.0f, /*31*31/*/(outputHeight*81.25 + 0.4375), 1.0f };
 
 GLfloat threshold = 0.04;
 vector< vector<GLfloat> > heightList, laplaceList;
 vector<GLfloat> maxList;
-const int pyrLevel = 5;
+const int pyrLevel = 3;
 float alpha[5] = {1, 1, 1, 1, 1};
 float beta[5] = {0.5, 0.5, 0.5, 0.5, 0.5};
 
@@ -107,7 +108,7 @@ vector<bool> bgMask;
 vector<GLfloat> outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
-IplImage *img0;
+IplImage *img0, *sample;
 //vector<GLfloat> height;
 vector<GLfloat> compressedH, referenceHeight, sceneProfile, reliefProfile;
 int boundary =20;
@@ -121,7 +122,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 3, reference = 0;//; ref1: gradient correction, ref2: histogram
+int method = 0, reference = 0;//; ref1: gradient correction, ref2: histogram
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
 GLdouble projection[16], modelview[16], inverse[16];
@@ -737,20 +738,20 @@ GLfloat fdetail(GLfloat delta, GLfloat alpha)
 	return pow(delta, alpha);
 }
 
-GLfloat fedge(GLfloat delta, GLfloat beta)
-{
-	return delta*beta;
-}
+//GLfloat fedge(GLfloat delta, GLfloat beta)
+//{
+//	return delta*beta;
+//}
 
 //GLfloat fedge(GLfloat delta, GLfloat beta)
 //{
 //	return compress( delta, beta );
 //}
 
-//GLfloat fedge(GLfloat delta, GLfloat beta)
-//{
-//	return compress( delta+threshold, beta ) - compress( threshold, beta );
-//}
+GLfloat fedge(GLfloat delta, GLfloat beta)
+{
+	return compress( delta+threshold, beta ) - compress( threshold, beta );
+}
 
 
 void remapping(vector<GLfloat> &dst, GLfloat g, GLfloat threshold, GLfloat alpha, GLfloat beta=0.25)	//general remapping
@@ -1374,7 +1375,9 @@ void partition2(void)
 {
 	glDisable(GL_LIGHT0);
 	glEnable(GL_LIGHT1);
+	glEnable(GL_LIGHT3);
 	glDisable(GL_LIGHT2);
+	glDisable(GL_LIGHT4);
 	
 	glViewport(0, 0, winWidth, winHeight);
 
@@ -1400,6 +1403,7 @@ void partition2(void)
 
 	glLightfv(GL_LIGHT0, GL_POSITION, lightPos0);
 	glLightfv(GL_LIGHT1, GL_POSITION, lightPos1);
+	glLightfv(GL_LIGHT3, GL_POSITION, lightPos11);
 	
 	
 	/*glPushMatrix();
@@ -1416,6 +1420,7 @@ void partition3(void)
 {
 	glDisable(GL_LIGHT0);
 	glDisable(GL_LIGHT1);
+	glDisable(GL_LIGHT4);
 	glEnable(GL_LIGHT2);
 	glEnable(GL_LIGHT3);
 	//Do not change, setting a basic transformation
@@ -1457,7 +1462,7 @@ void partition3(void)
 	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
 
 	glLightfv(GL_LIGHT2, GL_POSITION, lightPos2);
-	glLightfv(GL_LIGHT3, GL_POSITION, lightPos21);
+	glLightfv(GL_LIGHT4, GL_POSITION, lightPos21);
 	/*glPushMatrix();
 		glTranslated(-10,15,0);
 		glutSolidSphere(1,8,8);
@@ -1628,6 +1633,7 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gr
 		//#pragma omp parallel for private(hist)
 		for(int j=0; j< srcHeight; j++)
 		{
+			
 			float hist[ HistogramBins+1 ];
 			for(int k=0; k<= HistogramBins; k++)
 			{
@@ -1709,6 +1715,140 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gr
 			{
 				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
 			}*/
+
+		}
+	}
+	
+	
+	
+	/*for(int i=0; i< srcHeight; i++)
+	{
+		for(int j=0; j< srcHeight; j++)
+		{		
+			if(src.at( i*srcHeight + j) == 0)
+			{
+				dst.push_back(0);
+			}
+			else
+			{
+				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *HistogramBins) ]  );
+			}
+		}
+	}*/
+		
+}
+
+void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sample, IplImage *gradient=NULL, int aperture=33)
+{	
+	int srcHeight = sqrt( (float)src.size() );
+	
+	vector<GLfloat> weight;
+	if( gradient != NULL)
+	{		
+		if( srcHeight != gradient->height || srcHeight != gradient->width ) return;
+
+		compress(gradient);
+		Image2Relief(gradient, weight);
+	}
+
+	int ext = (aperture-1) / 2;
+	/*if( gradient != NULL)
+	{
+		gradientWeight(weight, ext);
+	}*/
+	
+	
+	for(int i=0; i< srcHeight; i++)
+	{
+		//#pragma omp parallel for private(hist)
+		for(int j=0; j< srcHeight; j++)
+		{
+			if( cvGetReal2D(sample, srcHeight - 1 - j, i) )
+			{
+			
+				float hist[ HistogramBins+1 ];
+				for(int k=0; k<= HistogramBins; k++)
+				{
+					hist[k] =0;
+				}
+				
+				if( src[ i*srcHeight + j ] == 0 )
+				{
+					dst[ i*srcHeight + j ] = 0;
+				}
+
+				else
+				{
+					int extU = -ext,extD = ext,extL = -ext,extR = ext;
+					
+						if( ext > j)		extL = -j;
+						if( ext > i)		extU = -i;
+						if( j+ext >= srcHeight)		extR = srcHeight - 1 - j;
+						if( i+ext >= srcHeight)		extD = srcHeight - 1 - i;					
+
+					for(int p=extU; p <= extD; p++)
+					{
+							//#pragma omp parallel for
+							for(int q=extL; q <= extR; q++)
+							{
+								if( gradient == NULL)
+								{
+									hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += 1;
+								}
+								else
+								{
+									hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += weight[ (i+p)*srcHeight + j+q ] * distanceWeight(i, j, i+p, j+q, ext);;
+								}
+							}
+					}
+
+					float cumulative =  0;
+					for(int bin=1; bin < HistogramBins+1; bin++)
+					{
+						cumulative += hist[bin];
+					}
+					
+					/*float test[6] = {0, 50, 100, 200, 150, 100};
+					redistribute(test, 600, 1);*/
+					redistribute(hist, cumulative, scalingFactor*HistogramBins/10000);
+
+					float sum[ HistogramBins+1 ];
+			
+					
+					for(int bin=0; bin < src[ i*srcHeight + j] * HistogramBins + 1; bin++)
+					{
+						if( bin <= 1 )
+						{
+							sum[bin] = 0;
+							//sum[bin] =  hist[bin] * 1000 /  number;
+							/*cout << "Sum " << sum[i] << std::endl;
+							sum2[i] =  cvGetReal1D(lHist1->bins, i);*/
+						}
+						else if( bin == 2)
+						{
+							sum[bin] = sum[bin-1] + ( hist[2] - hist[1]) /* *HistogramBins*/ / cumulative;
+						}
+						else
+						{
+							sum[bin] = sum[bin-1] + hist[bin] /* *HistogramBins*/  / cumulative;
+							//sum2[i] = sum2[i-1] + cvGetReal1D(lHist1->bins, i);
+						}
+					}
+					
+					dst[ i*srcHeight + j ] = sum [ (int) (src[ i*srcHeight + j ]  * HistogramBins) ] ;
+				}
+
+				//dst.clear();
+				/*if(src.at( i*srcHeight + j) == 0)
+				{
+					dst.push_back(0);
+				}
+				else
+				{
+					dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
+				}*/
+			}
+
 		}
 	}
 	
@@ -1846,6 +1986,7 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 		}
 	}
 
+	/*****	interpolation	*****/
 	for(int i=1; i <= (int) log2( (double)spacing ); i++)
 	{
 		IplImage *dstImg = cvCreateImage( cvSize(srcImg->width*2, srcImg->height*2), IPL_DEPTH_32F, 1);
@@ -1854,6 +1995,7 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 		cvCopy(dstImg, srcImg);
 	}
 	Image2Relief(srcImg, dst);
+	/*****	interpolation	*****/
 	
 	/*for(int i=0; i< srcHeight; i++)
 	{
@@ -2899,7 +3041,7 @@ void histogramBase(vector<GLfloat> &src, IplImage *gradientX, IplImage *gradient
 			Image2Relief(srcImg, referenceHeight);*/
 			for(int k=1; k <= n; k++)
 			{
-				equalizeHist(src, AHEHeight, pow(2.0, level), gradient, pow(2.0, k-1) * 2*2 + 1);
+				equalizeHist(src, AHEHeight, pow(2.0, level), gradient, pow(2.0, k-1) * 8*2 + 1);
 				vectorAdd(compressedH, AHEHeight, compressedH);
 				AHEHeight.clear();
 			}
@@ -3162,16 +3304,18 @@ void reliefHistogram(vector<GLfloat> &src, IplImage *gradientX, IplImage *gradie
 				cvCopy(dstImg, srcImg);
 			}
 			Image2Relief(srcImg, referenceHeight);*/
-			for(int k=1; k <= n; k++)
-			{
-				equalizeHist(src, AHEHeight, gradient, pow(2.0, k-1) * 2*2 + 1);
-				vectorAdd(referenceHeight, AHEHeight, referenceHeight);
-				AHEHeight.clear();
-			}
-			//vectorScale(referenceHeight, referenceHeight, 1.0/n);
+			
 
 			if(level)
 			{
+				for(int k=1; k <= n; k++)
+				{
+					equalizeHist(src, AHEHeight, gradient, pow(2.0, k-1) * 2*2 + 1);
+					vectorAdd(referenceHeight, AHEHeight, referenceHeight);
+					AHEHeight.clear();
+				}
+				//vectorScale(referenceHeight, referenceHeight, 1.0/n);
+				
 				int side = sqrt( (float)size );
 				IplImage *srcImg = cvCreateImage( cvSize(side, side), IPL_DEPTH_32F, 1);
 				Relief2Image(referenceHeight, srcImg);
@@ -3185,6 +3329,16 @@ void reliefHistogram(vector<GLfloat> &src, IplImage *gradientX, IplImage *gradie
 				}
 
 				Image2Relief(srcImg, referenceHeight);
+			}
+			else
+			{
+					for(int k=1; k <= n; k++)
+					{
+						equalizeHist(src, AHEHeight,/* pow(2.0, pyrLevel-1),*/ gradient, pow(2.0, k-1) * 2*2 + 1);
+						vectorAdd(referenceHeight, AHEHeight, referenceHeight);
+						AHEHeight.clear();
+					}
+					//vectorScale(referenceHeight, referenceHeight, 1.0/n);
 			}
 
 			bgFilter(referenceHeight, bgMask);
@@ -4234,6 +4388,8 @@ void display0(void)
 	glEnable(GL_LIGHT0);
 	glDisable(GL_LIGHT1);
 	glDisable(GL_LIGHT2);
+	glDisable(GL_LIGHT3);
+	glDisable(GL_LIGHT4);
 	
 	//view transform
 	glViewport(0, 0, winWidth0, winHeight0);
@@ -4381,6 +4537,77 @@ void display0(void)
 	glutSwapBuffers();
 }
 
+void skewness(IplImage *src, IplImage *dst, int aperture=3)
+{
+	int width =src->width;
+	int height = src->height;
+	IplImage *bgImg = cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+	Relief2Image(bgMask, bgImg);
+
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+		
+			if( cvGetReal2D(bgImg, j, i) )
+			{
+				cvSetReal2D(dst, j, i, 0);
+			}
+
+			else
+			{
+			
+				int ext = (aperture-1) / 2;
+				int extU,extD,extL,extR;
+				
+					extU = -ext;
+					extD = ext;
+					extL = -ext;
+					extR = ext;
+				
+					if( ext > j)		extU = -j;
+					if( ext > i)		extL = -i;
+					if( j+ext >= height)		extD = height - 1 - j;
+					if( i+ext >= width)		extR =  width - 1 - i;
+
+				double mean=0, sum=0, count=0;
+				for(int p=extL; p <= extR; p++)
+				{
+					for(int q=extU; q <= extD; q++)
+					{
+						if( !cvGetReal2D(bgImg, j+q, i+p) )
+						{
+							mean += cvGetReal2D(src, j+q, i+p);
+							count++;
+						}
+					}
+				}
+				mean /= count;
+
+				cvGetReal2D(src, j, i) - mean;
+				for(int p=extL; p <= extR; p++)
+				{
+					for(int q=extU; q <= extD; q++)
+					{
+						if( !cvGetReal2D(bgImg, j+q, i+p) )
+						{
+							sum += pow(cvGetReal2D(src, j, i) - mean, 3);
+						}
+					}
+				}			
+
+				cvSetReal2D(dst, j, i, sum/count);
+			}
+		}
+	}
+
+	cvAbs(dst, dst);
+	double min, max;
+	cvMinMaxLoc(dst, &min, &max);
+	cvConvertScale(dst, dst, 1.0/max);
+
+}
+
 void display(void)
 {
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
@@ -4405,6 +4632,8 @@ void display(void)
 	glDisable(GL_LIGHT1);
 	glDisable(GL_LIGHT2);
 	glDisable(GL_LIGHT3);
+	glDisable(GL_LIGHT4);
+
 	if( !scene )
 	{
 		openglPath();
@@ -4438,6 +4667,54 @@ void display(void)
 				laplaceList.push_back(laplace[i]);
 				recordMax(laplace[i]);
 			}
+			
+			sample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			
+			IplImage *img =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			cvConvertScaleAbs(img0, img, 255);
+			int numNonZero = cvCountNonZero(img);
+
+			/*****	Skewness	*****/		
+			IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+			skewness(img, feature);
+
+			double featureMin, featureMax;
+			cvMinMaxLoc(feature, &featureMin, &featureMax);
+			cout << "featureMax: " << featureMax << endl;
+			double scale = 255 / (featureMax - featureMin);   
+			double shift = -featureMin * scale;  
+			cvConvertScaleAbs(feature, sample, scale, shift);
+			/*****	Skewness	*****/
+
+			/*****	Harris Corner	*****/
+			//IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+			//
+			//cvCornerHarris(img, feature, 3);
+			//
+			//
+			////cvAdaptiveThreshold(sample, sample, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 3, 0);
+			//double featureMin, featureMax;
+			//cvMinMaxLoc(feature, &featureMin, &featureMax);
+			//cout << "featureMax: " << featureMax << endl;
+			//double scale = 255 / (featureMax - featureMin);   
+			//double shift = -featureMin * scale;  
+			//cvConvertScaleAbs(feature, sample, scale, 0);
+			/*****	Harris Corner	*****/
+
+			/*****	Canny Edge	*****/
+			/*IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			Relief2Image(heightPyr[0], sample);	
+			int numNonZero = cvCountNonZero(sample);
+			cvCanny(sample, feature, 0, 1);*/
+			/*****	Canny Edge	*****/
+
+			cout << "#NonZero of Original: " << numNonZero << endl;
+
+			numNonZero = cvCountNonZero(sample);
+			cout << "#NonZero of Sample: " << numNonZero << endl;		
+
+			cvNamedWindow("Sample Points", 1);
+			cvShowImage("Sample Points", sample);
 
 			if( method == 1 )		//F1
 			{	
@@ -4877,8 +5154,11 @@ int main(int argc, char **argv)
     GLfloat  diffuseLight0[] = { 0.7f, 0.7f, 0.7f, 1.0f };
     GLfloat  specular0[] = { 0.7f, 0.7f, 0.7f, 1.0f };
 
-	 GLfloat  ambientLight1[] = { 0.1f, 0.1f, 0.1f, 1.0f };
+	GLfloat  ambientLight1[] = { 0.1f, 0.1f, 0.1f, 1.0f };
+	GLfloat  ambientLight2[] = { 0.05f, 0.05f, 0.05f, 1.0f };
     GLfloat  diffuseLight1[] = { 0.3f, 0.3f, 0.3f, 1.0f };
+	GLfloat  diffuseLight2[] = { 0.05f, 0.05f, 0.05f, 1.0f };
+
     GLfloat  specular1[] = { 0.0f, 0.0f, 0.0f, 1.0f };
 
     GLfloat  specref[] = { 0.25f, 0.25f, 0.25f, 0.25f };
@@ -4919,13 +5199,13 @@ int main(int argc, char **argv)
     glLightfv(GL_LIGHT0,GL_SPECULAR, specular0);
     glEnable(GL_LIGHT0);
 
-	glLightfv(GL_LIGHT1,GL_AMBIENT,ambientLight1);
+	/*glLightfv(GL_LIGHT1,GL_AMBIENT,ambientLight1);
     glLightfv(GL_LIGHT1,GL_DIFFUSE,diffuseLight1);
     glLightfv(GL_LIGHT1,GL_SPECULAR, specular1);
 
 	glLightfv(GL_LIGHT2,GL_AMBIENT,ambientLight1);
     glLightfv(GL_LIGHT2,GL_DIFFUSE,diffuseLight1);
-    glLightfv(GL_LIGHT2,GL_SPECULAR, specular1);
+    glLightfv(GL_LIGHT2,GL_SPECULAR, specular1);*/
     
 
     // Enable color tracking
@@ -4977,7 +5257,7 @@ int main(int argc, char **argv)
     glEnable(GL_LIGHTING);
 
     // Setup and enable light 0
-    glLightfv(GL_LIGHT0,GL_AMBIENT,ambientLight0);
+	glLightfv(GL_LIGHT0,GL_AMBIENT,ambientLight0);
     glLightfv(GL_LIGHT0,GL_DIFFUSE,diffuseLight0);
     glLightfv(GL_LIGHT0,GL_SPECULAR, specular0);
     glEnable(GL_LIGHT0);
@@ -4990,12 +5270,13 @@ int main(int argc, char **argv)
     glLightfv(GL_LIGHT2,GL_DIFFUSE,diffuseLight1);
     glLightfv(GL_LIGHT2,GL_SPECULAR, specular1);
     
-	glLightfv(GL_LIGHT3,GL_DIFFUSE,ambientLight1);
+	glLightfv(GL_LIGHT3,GL_DIFFUSE,diffuseLight2);
+	glLightfv(GL_LIGHT4,GL_DIFFUSE,diffuseLight2);
 
     // Enable color tracking
     glEnable(GL_COLOR_MATERIAL);
     // Set Material properties to follow glColor values
-    glColorMaterial(GL_FRONT, GL_AMBIENT_AND_DIFFUSE);
+    /*glColorMaterial(GL_FRONT, GL_AMBIENT_AND_DIFFUSE);*/
 
 	// All materials hereafter have full specular reflectivity with a high shine 
     glMaterialfv(GL_FRONT, GL_SPECULAR, specref);
@@ -5004,12 +5285,12 @@ int main(int argc, char **argv)
 	//
 	//hw3
 	//
-	swLightfv(GL_LIGHT0,GL_AMBIENT,ambientLight0);
+	/*swLightfv(GL_LIGHT0,GL_AMBIENT,ambientLight0);
     swLightfv(GL_LIGHT0,GL_DIFFUSE,diffuseLight0);
     swLightfv(GL_LIGHT0,GL_SPECULAR, specular0);
 
     swMaterialfv(GL_FRONT, GL_SPECULAR, specref);
-    swMateriali(GL_FRONT, GL_SHININESS, shininess);
+    swMateriali(GL_FRONT, GL_SHININESS, shininess);*/
 
 
     glutMainLoop();
