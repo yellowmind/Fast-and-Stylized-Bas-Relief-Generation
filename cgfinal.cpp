@@ -10,6 +10,8 @@
 #include <GL/glut.h>
 #endif
 
+#include <ANN/ANN.h>
+
 #include <cv.h>
 //#include <cvaux.h>
 #include <highgui.h>
@@ -19,6 +21,7 @@
 #include "glm.h"
 
 //#include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <vector>
 #include <utility>
@@ -122,7 +125,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 0, reference = 0;//; ref1: gradient correction, ref2: histogram
+int method = 0, reference = 2;//; ref1: gradient correction, ref2: histogram
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
 GLdouble projection[16], modelview[16], inverse[16];
@@ -504,7 +507,7 @@ void Relief2Image(vector<T> src, IplImage *dst)
 	{
 		for(int j=0; j < height; j++)
 		{
-			cvSetReal2D( dst, height - 1 - j, i, (double) src.at( i*height + j ) );
+			cvSetReal2D( dst, height - 1 - j, i, (double) src[ i*height + j ] );
 		}
 	}
 }
@@ -1738,6 +1741,228 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gr
 		
 }
 
+int				k				= 4;			// number of nearest neighbors
+int				dim				= 2;			// dimension
+double			eps				= 0;			// error bound
+int				maxPts			= 5000;			// maximum number of data points
+istream*		dataIn			= NULL;			// input for data points
+istream*		queryIn			= NULL;			// input for query points
+
+bool readPt(istream &in, ANNpoint p)			// read point (false on EOF)
+{
+	for (int i = 0; i < dim; i++) {
+		if(!(in >> p[i])) return false;
+	}
+	return true;
+}
+
+void printPt(ostream &out, ANNpoint p)			// print point
+{
+	out << "(" << p[0];
+	for (int i = 1; i < dim; i++) {
+		out << ", " << p[i];
+	}
+	out << ")\n";
+}
+
+void knninterpolation(IplImage *src, IplImage *dst)
+{
+	string dataS,queryS;
+	int width = src->width;
+	int height = src->height;
+
+	char buffer [10];
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			if( !bgMask[i*height + height - 1 - j] )
+			{
+				if( cvGetReal2D(src, j, i) )
+				{
+					dataS += itoa(j, buffer, 10);
+					dataS += " ";
+					dataS += itoa(i, buffer, 10);
+					dataS += "\n";
+				}
+				else
+				{
+					queryS += itoa(j, buffer, 10);
+					queryS += " ";
+					queryS += itoa(i, buffer, 10);
+					queryS += "\n";
+				}
+			}
+		}
+	}
+
+	istringstream dataIs(dataS);
+	dataIn = &dataIs;
+	istringstream queryIs(queryS);
+	queryIn = &queryIs;
+
+	ANNpointArray		dataPts;				// data points
+	ANNpoint			queryPt;				// query point
+	ANNidxArray			nnIdx;					// near neighbor indices
+	ANNdistArray		dists;					// near neighbor distances
+	ANNkd_tree*			kdTree;					// search structure
+
+	//getArgs(argc, argv);						// read command-line arguments
+
+	int					nPts;					// actual number of data points
+	queryPt = annAllocPt(dim);					// allocate query point
+	dataPts = annAllocPts(maxPts, dim);			// allocate data points
+	nnIdx = new ANNidx[k];						// allocate near neigh indices
+	dists = new ANNdist[k];						// allocate near neighbor dists
+
+	nPts = 0;									// read data points
+
+	//cout << "Data Points:\n";
+	while (nPts < maxPts && readPt(*dataIn, dataPts[nPts])) {
+		//printPt(cout, dataPts[nPts]);
+		nPts++;
+	}
+
+	kdTree = new ANNkd_tree(					// build search structure
+					dataPts,					// the data points
+					nPts,						// number of points
+					dim);						// dimension of space
+
+	while (readPt(*queryIn, queryPt)) {			// read query points
+		cout << "Query point: ";				// echo query point
+		printPt(cout, queryPt);
+
+		kdTree->annkSearch(						// search
+				queryPt,						// query point
+				k,								// number of near neighbors
+				nnIdx,							// nearest neighbors (returned)
+				dists,							// distance (returned)
+				eps);							// error bound
+
+		//cout << "\tNN:\tIndex\tDistance\n";
+		//for (int i = 0; i < k; i++) {			// print summary
+		//	dists[i] = sqrt(dists[i]);			// unsquare distance
+		//	cout << "\t" << i << "\t" << dataPts[ nnIdx[i] ][0] << "\t" << dists[i] << "\n";
+		//}
+
+		double sum=0,wsum=0;
+		for (int i = 0; i < k; i++)
+		{
+			dists[i] = sqrt(dists[i]);
+			//cout << "\t" << i << "\t" << nnIdx[i] <<  "\t" << dataPts[ nnIdx[i] ][0] << "\t" << dataPts[ nnIdx[i] ][1] << "\t" << dists[i] << "\n";
+			sum += 1.0/dists[i]*cvGetReal2D( src, dataPts[ nnIdx[i] ][0], dataPts[ nnIdx[i] ][1] );
+			wsum += 1.0/dists[i];
+		}
+
+		cvSetReal2D( dst, queryPt[0], queryPt[1], 1.0/wsum*sum);
+	}
+
+	delete [] nnIdx;							// clean things up
+	delete [] dists;
+	delete kdTree;
+	annClose();									// done with ANN
+}
+
+void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst)
+{
+	string dataS,queryS;
+	int width = sqrt( (float)src.size() );
+	int height = width;
+
+	char buffer [10];
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			if( !bgMask[ i*height + j ] )
+			{
+				if( src[ i*height+j ] )
+				{
+					dataS += itoa(j, buffer, 10);
+					dataS += " ";
+					dataS += itoa(i, buffer, 10);
+					dataS += "\n";
+				}
+				else
+				{
+					queryS += itoa(j, buffer, 10);
+					queryS += " ";
+					queryS += itoa(i, buffer, 10);
+					queryS += "\n";
+				}
+			}
+		}
+	}
+
+	istringstream dataIs(dataS);
+	dataIn = &dataIs;
+	istringstream queryIs(queryS);
+	queryIn = &queryIs;
+
+	int					nPts;					// actual number of data points
+	ANNpointArray		dataPts;				// data points
+	ANNpoint			queryPt;				// query point
+	ANNidxArray			nnIdx;					// near neighbor indices
+	ANNdistArray		dists;					// near neighbor distances
+	ANNkd_tree*			kdTree;					// search structure
+
+	//getArgs(argc, argv);						// read command-line arguments
+
+	queryPt = annAllocPt(dim);					// allocate query point
+	dataPts = annAllocPts(maxPts, dim);			// allocate data points
+	nnIdx = new ANNidx[k];						// allocate near neigh indices
+	dists = new ANNdist[k];						// allocate near neighbor dists
+
+	nPts = 0;									// read data points
+
+	//cout << "Data Points:\n";
+	while (nPts < maxPts && readPt(*dataIn, dataPts[nPts])) {
+		//printPt(cout, dataPts[nPts]);
+		nPts++;
+	}
+
+	kdTree = new ANNkd_tree(					// build search structure
+					dataPts,					// the data points
+					nPts,						// number of points
+					dim);						// dimension of space
+
+	while (readPt(*queryIn, queryPt)) {			// read query points
+		//cout << "Query point: ";				// echo query point
+		//printPt(cout, queryPt);
+
+		kdTree->annkSearch(						// search
+				queryPt,						// query point
+				k,								// number of near neighbors
+				nnIdx,							// nearest neighbors (returned)
+				dists,							// distance (returned)
+				eps);							// error bound
+
+		//cout << "\tNN:\tIndex\tDistance\n";
+		//for (int i = 0; i < k; i++) {			// print summary
+		//	dists[i] = sqrt(dists[i]);			// unsquare distance
+		//	cout << "\t" << i << "\t" << dataPts[ nnIdx[i] ][0] << "\t" << dists[i] << "\n";
+		//}
+
+		//cout << "\tNN:\tIndex\tDistance\n";
+		double sum=0,wsum=0;
+		for (int i = 0; i < k; i++)
+		{
+			dists[i] = sqrt(dists[i]);
+			//cout << "\t" << i << "\t" << nnIdx[i] <<  "\t" << dataPts[ nnIdx[i] ][0] << "\t" << dataPts[ nnIdx[i] ][1] << "\t" << dists[i] << "\n";
+			sum += 1.0/dists[i] * src[	dataPts[ nnIdx[i] ][1]*height +
+														dataPts[ nnIdx[i] ][0]					];
+			wsum += 1.0/dists[i];
+		}
+
+		dst[ queryPt[1]*height + queryPt[0] ] = 1.0/wsum*sum;
+	}
+
+	delete [] nnIdx;							// clean things up
+	delete [] dists;
+	delete kdTree;
+	annClose();									// done with ANN
+}
+
 void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sample, IplImage *gradient=NULL, int aperture=33)
 {	
 	int srcHeight = sqrt( (float)src.size() );
@@ -1757,7 +1982,7 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sa
 		gradientWeight(weight, ext);
 	}*/
 	
-	
+	/***** Equalization on Sample *****/
 	for(int i=0; i< srcHeight; i++)
 	{
 		//#pragma omp parallel for private(hist)
@@ -1851,24 +2076,10 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sa
 
 		}
 	}
+	/***** Equalization on Sample *****/
+
+	knninterpolation(dst, dst);
 	
-	
-	
-	/*for(int i=0; i< srcHeight; i++)
-	{
-		for(int j=0; j< srcHeight; j++)
-		{		
-			if(src.at( i*srcHeight + j) == 0)
-			{
-				dst.push_back(0);
-			}
-			else
-			{
-				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *HistogramBins) ]  );
-			}
-		}
-	}*/
-		
 }
 
 void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing = 16, IplImage *gradient=NULL, int aperture=33)
@@ -3310,7 +3521,7 @@ void reliefHistogram(vector<GLfloat> &src, IplImage *gradientX, IplImage *gradie
 			{
 				for(int k=1; k <= n; k++)
 				{
-					equalizeHist(src, AHEHeight, gradient, pow(2.0, k-1) * 2*2 + 1);
+					equalizeHist(src, AHEHeight, gradient, pow(2.0, k-1) * 8*2 + 1);
 					vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 					AHEHeight.clear();
 				}
@@ -3334,7 +3545,7 @@ void reliefHistogram(vector<GLfloat> &src, IplImage *gradientX, IplImage *gradie
 			{
 					for(int k=1; k <= n; k++)
 					{
-						equalizeHist(src, AHEHeight,/* pow(2.0, pyrLevel-1),*/ gradient, pow(2.0, k-1) * 2*2 + 1);
+						equalizeHist(src, AHEHeight, sample,/* pow(2.0, pyrLevel-1),*/ gradient, pow(2.0, k-1) * 2*2 + 1);
 						vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 						AHEHeight.clear();
 					}
@@ -4608,6 +4819,8 @@ void skewness(IplImage *src, IplImage *dst, int aperture=3)
 
 }
 
+
+
 void display(void)
 {
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
@@ -4668,53 +4881,7 @@ void display(void)
 				recordMax(laplace[i]);
 			}
 			
-			sample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
 			
-			IplImage *img =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			cvConvertScaleAbs(img0, img, 255);
-			int numNonZero = cvCountNonZero(img);
-
-			/*****	Skewness	*****/		
-			IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
-			skewness(img, feature);
-
-			double featureMin, featureMax;
-			cvMinMaxLoc(feature, &featureMin, &featureMax);
-			cout << "featureMax: " << featureMax << endl;
-			double scale = 255 / (featureMax - featureMin);   
-			double shift = -featureMin * scale;  
-			cvConvertScaleAbs(feature, sample, scale, shift);
-			/*****	Skewness	*****/
-
-			/*****	Harris Corner	*****/
-			//IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
-			//
-			//cvCornerHarris(img, feature, 3);
-			//
-			//
-			////cvAdaptiveThreshold(sample, sample, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 3, 0);
-			//double featureMin, featureMax;
-			//cvMinMaxLoc(feature, &featureMin, &featureMax);
-			//cout << "featureMax: " << featureMax << endl;
-			//double scale = 255 / (featureMax - featureMin);   
-			//double shift = -featureMin * scale;  
-			//cvConvertScaleAbs(feature, sample, scale, 0);
-			/*****	Harris Corner	*****/
-
-			/*****	Canny Edge	*****/
-			/*IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			Relief2Image(heightPyr[0], sample);	
-			int numNonZero = cvCountNonZero(sample);
-			cvCanny(sample, feature, 0, 1);*/
-			/*****	Canny Edge	*****/
-
-			cout << "#NonZero of Original: " << numNonZero << endl;
-
-			numNonZero = cvCountNonZero(sample);
-			cout << "#NonZero of Sample: " << numNonZero << endl;		
-
-			cvNamedWindow("Sample Points", 1);
-			cvShowImage("Sample Points", sample);
 
 			if( method == 1 )		//F1
 			{	
@@ -4782,6 +4949,61 @@ void display(void)
 			IplImage *gradientY =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_16S, 1);
 			cvSobel( Image, gradientX, 1, 0);
 			cvSobel( Image, gradientY, 0, 1);
+
+
+			sample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			
+			IplImage *img =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			cvSetZero(img);
+			cvConvertScaleAbs(img0, img, 255);
+			int numNonZero = cvCountNonZero(img);
+			cvNamedWindow("Original Points", 1);
+			cvShowImage("Original Points", img);
+
+			/*****	Skewness	*****/		
+			/*IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+			skewness(img, feature, 3);
+			cvThreshold(feature, feature, 0.000001, 255, CV_THRESH_BINARY);
+
+			double featureMin, featureMax;
+			cvMinMaxLoc(feature, &featureMin, &featureMax);
+			cout << "featureMax: " << featureMax << endl;
+			double scale = 255.0 / (featureMax - featureMin);   
+			double shift = -featureMin * scale;  
+			cvConvertScaleAbs(feature, sample, scale, shift);*/
+			/*****	Skewness	*****/
+
+			/*****	Harris Corner	*****/
+			IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+			
+			cvCornerHarris(img, feature, 3);
+			
+			
+			//cvAdaptiveThreshold(sample, sample, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 3, 0);
+			double featureMin, featureMax;
+			cvMinMaxLoc(feature, &featureMin, &featureMax);
+			cout << "featureMax: " << featureMax << endl;
+			double scale = 255 / (featureMax - featureMin);   
+			double shift = -featureMin * scale;  
+			cvConvertScaleAbs(feature, sample, scale, 0);
+			/*****	Harris Corner	*****/
+
+			/*****	Canny Edge	*****/
+			/*IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			Relief2Image(heightPyr[0], sample);	
+			numNonZero = cvCountNonZero(sample);
+			cvCanny(sample, feature, 0, 1);*/
+			/*****	Canny Edge	*****/
+
+			cout << "#NonZero of Original: " << numNonZero << endl;		
+
+			numNonZero = cvCountNonZero(sample);
+			cout << "#NonZero of Sample: " << numNonZero << endl;
+
+			cvThreshold(sample, sample, 0, 255, CV_THRESH_BINARY);
+			cvNamedWindow("Sample Points", 1);
+			cvShowImage("Sample Points", sample);
+			
 
 			if( reference == 1 )		//F9
 			{
