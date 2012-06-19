@@ -125,7 +125,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 0, reference = 2;//; ref1: gradient correction, ref2: histogram
+int method = 0, reference = 2;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
 GLdouble projection[16], modelview[16], inverse[16];
@@ -4819,7 +4819,32 @@ void skewness(IplImage *src, IplImage *dst, int aperture=3)
 
 }
 
+void multiDensity(IplImage *src, IplImage *dst)
+{
+	const int n=4;
+	float theta[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
+	float radius[n] = {2, 5, 6, 8};
+	
+	int width = src->width;
+	int height = src->height;
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			double value = cvGetReal2D(src, j, i);
 
+			for(int k=0; k<n; k++)
+			{
+				if( theta[k] >= value && value > theta[k+1] )
+				{
+					cvCircle(src, cvPoint(i, j), radius[k], cvScalarAll(0), -1);
+					cvSetReal2D(dst, j, i, 255);
+					break;
+				}
+			}
+		}
+	}
+}
 
 void display(void)
 {
@@ -4952,6 +4977,7 @@ void display(void)
 
 
 			sample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			cvSetZero(sample);
 			
 			IplImage *img =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
 			cvSetZero(img);
@@ -4961,9 +4987,12 @@ void display(void)
 			cvShowImage("Original Points", img);
 
 			/*****	Skewness	*****/		
-			/*IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+			IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
 			skewness(img, feature, 3);
-			cvThreshold(feature, feature, 0.000001, 255, CV_THRESH_BINARY);
+
+			multiDensity(feature, sample);
+			
+			/*cvThreshold(feature, feature, 0.001, 255, CV_THRESH_BINARY);
 
 			double featureMin, featureMax;
 			cvMinMaxLoc(feature, &featureMin, &featureMax);
@@ -4974,18 +5003,18 @@ void display(void)
 			/*****	Skewness	*****/
 
 			/*****	Harris Corner	*****/
-			IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
-			
-			cvCornerHarris(img, feature, 3);
-			
-			
-			//cvAdaptiveThreshold(sample, sample, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 3, 0);
-			double featureMin, featureMax;
-			cvMinMaxLoc(feature, &featureMin, &featureMax);
-			cout << "featureMax: " << featureMax << endl;
-			double scale = 255 / (featureMax - featureMin);   
-			double shift = -featureMin * scale;  
-			cvConvertScaleAbs(feature, sample, scale, 0);
+			//IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+			//
+			//cvCornerHarris(img, feature, 3);
+			//
+			//
+			////cvAdaptiveThreshold(sample, sample, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 3, 0);
+			//double featureMin, featureMax;
+			//cvMinMaxLoc(feature, &featureMin, &featureMax);
+			//cout << "featureMax: " << featureMax << endl;
+			//double scale = 255 / (featureMax - featureMin);   
+			//double shift = -featureMin * scale;  
+			//cvConvertScaleAbs(feature, sample, scale, 0);
 			/*****	Harris Corner	*****/
 
 			/*****	Canny Edge	*****/
@@ -5026,7 +5055,7 @@ void display(void)
 				cvSobel( Image, gradientX, 1, 0);
 				cvSobel( Image, gradientY, 0, 1);
 				
-				reliefHistogram(heightPyr[2], gradientX, gradientY, 2);
+				reliefHistogram(heightPyr[pyrLevel-1], gradientX, gradientY, 2);
 			}
 			else	//F12
 			{		
