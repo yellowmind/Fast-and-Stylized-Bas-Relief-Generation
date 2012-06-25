@@ -103,9 +103,9 @@ GLfloat lightPos21[] = { 27.f, -15.0f, /*31*31/*/(outputHeight*81.25 + 0.4375), 
 GLfloat threshold = 0.04;
 vector< vector<GLfloat> > heightList, laplaceList;
 vector<GLfloat> maxList;
-const int pyrLevel = 3;
-float alpha[5] = {1, 1, 1, 1, 1};
-float beta[5] = {0.5, 0.5, 0.5, 0.5, 0.5};
+const int pyrLevel = 5;
+float alpha[5] = {0.25, 0.25, 0.25, 0.25, 0.25};
+float beta[5] = {0, 0, 0, 0, 0};
 
 vector<bool> bgMask;
 vector<GLfloat> outlineMask;
@@ -117,6 +117,12 @@ vector<GLfloat> compressedH, referenceHeight, sceneProfile, reliefProfile;
 int boundary =20;
 int disp=0;
 
+//sampling density
+const int n=4;
+//float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
+float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
+float radius[n] = {2, 3, 3, 3};
+
 GLdouble *pThreadRelief = NULL;
 GLdouble *pThreadNormal = NULL;
 GLdouble *pThreadEqualizeRelief = NULL;
@@ -125,7 +131,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 0, reference = 2;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
+int method = 3, reference = 0;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
 GLdouble projection[16], modelview[16], inverse[16];
@@ -741,20 +747,38 @@ GLfloat fdetail(GLfloat delta, GLfloat alpha)
 	return pow(delta, alpha);
 }
 
-//GLfloat fedge(GLfloat delta, GLfloat beta)
-//{
-//	return delta*beta;
-//}
+GLfloat fdetail(GLfloat delta, GLfloat alpha, GLfloat maxIntensity)
+{
+	float tau = delta / maxIntensity / 0.01;	
+	if(tau <= 1)
+	{
+		tau = 0;
+	}
+	else if(tau > 2)
+	{
+		tau = 1;
+	}
+	else
+	{
+		tau -= 1;
+	}
+	return tau*pow(delta, alpha) + (1-tau)*delta;
+}
+
+GLfloat fedge(GLfloat delta, GLfloat beta)
+{
+	return delta*beta;
+}
 
 //GLfloat fedge(GLfloat delta, GLfloat beta)
 //{
 //	return compress( delta, beta );
 //}
 
-GLfloat fedge(GLfloat delta, GLfloat beta)
-{
-	return compress( delta+threshold, beta ) - compress( threshold, beta );
-}
+//GLfloat fedge(GLfloat delta, GLfloat beta)
+//{
+//	return compress( delta+threshold, beta ) - compress( threshold, beta );
+//}
 
 
 void remapping(vector<GLfloat> &dst, GLfloat g, GLfloat threshold, GLfloat alpha, GLfloat beta=0.25)	//general remapping
@@ -1549,11 +1573,30 @@ struct setcomp {
 	}
 };
 
-void sortAddress(float src[], int dst[])
+void sortAddress(float src[], int dst[], const int size)
 {	
 	set<P, setcomp> s;
 
-	for(int i = 1; i < HistogramBins+1; i++)
+	for(int i = 1; i < size; i++)
+	{
+		s.insert( P(i, src[i]) );
+	}
+	
+	set<P, setcomp>::iterator iter;
+	int i = 1;
+    for (iter = s.begin(); iter != s.end(); ++iter)
+    {
+		dst[i] = (*iter).first;
+		i++;
+    }
+
+}
+
+void sortAddress(double src[], int dst[], const int size)
+{	
+	set<P, setcomp> s;
+
+	for(int i = 1; i < size; i++)
 	{
 		s.insert( P(i, src[i]) );
 	}
@@ -1573,7 +1616,7 @@ void redistribute(float h[], float cumulative, float l)
 	l = cumulative*l / HistogramBins;
 
 	int sort[ HistogramBins+1 ];
-	sortAddress(h, sort);
+	sortAddress(h, sort, HistogramBins+1);
 
 	int i;
 	float S = 0;
@@ -1741,7 +1784,7 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gr
 		
 }
 
-int				k				= 4;			// number of nearest neighbors
+const int				k				= 4;			// number of nearest neighbors
 int				dim				= 2;			// dimension
 double			eps				= 0;			// error bound
 int				maxPts			= 5000;			// maximum number of data points
@@ -1763,6 +1806,67 @@ void printPt(ostream &out, ANNpoint p)			// print point
 		out << ", " << p[i];
 	}
 	out << ")\n";
+}
+
+double dist(ANNpoint p1, ANNpoint p2)
+{
+	return sqrt( pow(p1[1] - p2[1], 2) + pow(p1[0] - p2[0], 2) );
+}
+
+void setSector(ANNpoint origin, ANNpoint sample, int &dst)
+{
+	int x = origin[1];
+	int y = origin[0];
+
+	if(sample[0] > y)
+	{
+		if(sample[1] > x)
+		{
+			dst = 1;
+		}
+		else if(sample[1] == x)
+		{
+			dst = 2;
+		}
+		else
+		{
+			dst = 3;
+		}
+	}
+	else if(sample[0] == y)
+	{
+		if(sample[1] > x)
+		{
+			dst = 0;
+		}
+		else
+		{
+			dst = 4;
+		}
+	}
+	else
+	{
+		if(sample[1] > x)
+		{
+			dst = 7;
+		}
+		else if(sample[1] == x)
+		{
+			dst = 6;
+		}
+		else
+		{
+			dst = 5;
+		}
+	}
+}
+
+bool compareSector(int sector1, int sector2)
+{
+	if( sector1 == sector2)	return true;	//the same
+	if( (sector1+1) % 8 == sector2)	return true;	//clockwise rotation adjacence
+	if( (sector1-1) % 8 == sector2)	return true;	//counterclockwise rotation adjacence
+	return false;	
 }
 
 void knninterpolation(IplImage *src, IplImage *dst)
@@ -1914,6 +2018,15 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst)
 	dists = new ANNdist[k];						// allocate near neighbor dists
 
 	nPts = 0;									// read data points
+	
+
+	IplImage *type = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 3);
+	IplImage *r = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	IplImage *g = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	IplImage *b = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	cvCopy(sample, r);
+	cvCopy(sample, g);
+	cvCopy(sample, b);
 
 	//cout << "Data Points:\n";
 	while (nPts < maxPts && readPt(*dataIn, dataPts[nPts])) {
@@ -1944,10 +2057,88 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst)
 		//}
 
 		//cout << "\tNN:\tIndex\tDistance\n";
+		
+
+		float thetaD = pow(2*(radius[0] + 1), 2);
+
+		double distMax=0, distPrimeMax=0;
+		for(int i=0; i<4; i++)
+		{
+			if(dists[i] > distPrimeMax)
+			{
+				distMax = dists[i];
+			}
+			
+			for(int j=i+1; j<4;j++)
+			{
+				double distance = dist(dataPts[ nnIdx[i] ], dataPts[ nnIdx[j] ]);
+				if( distance > distPrimeMax )
+				{
+					distPrimeMax = distance;
+				}
+			}
+		}
+
+		if( distMax < thetaD )	//on  the edge
+		{
+			cvSetReal2D( r, height - 1 - queryPt[0], queryPt[1], 255);
+
+			for (int i = 0; i < k; i++)
+			{
+				dists[i] = pow( dists[i], 1.5); 
+			}
+		}
+		else if( distPrimeMax < thetaD )	//close to an edge
+		{
+			cvSetReal2D( g, height - 1 - queryPt[0], queryPt[1], 255);
+			
+			int sector[k];
+			for(int i=0; i < k; i++)
+			{				
+				setSector(queryPt, dataPts[ nnIdx[i] ], sector[i]);
+			}
+			
+			int sort[k];
+			sortAddress(dists, sort, k);
+
+			for(int i=k-1; i > 0; i--)//start from the smallest to the biggest
+			{
+				
+				int sector1 = sector[ sort[i] ];
+				int x1 = dataPts[ nnIdx[ sort[i] ] ][1];
+				int y1 = dataPts[ nnIdx[ sort[i] ] ][0];				
+				
+				for(int j=i-1; j>-0; j--)
+				{
+					
+					int sector2 = sector[ sort[j] ];
+					if( compareSector(sector1, sector2) )
+					{
+						int x2 = dataPts[ nnIdx[ sort[i] ] ][1];
+						int y2 = dataPts[ nnIdx[ sort[i] ] ][0];
+						if( abs( src[	x1*height + y1 ] - src[	x2*height + y2 ] ) > threshold )	//thetaV
+						{
+							dists[ sort[j] ]  *= 50;	//reduced by factor f
+						}									
+					}
+					
+				}
+				
+			}
+		}
+		else	//far from edges
+		{
+			for (int i = 0; i < k; i++)
+			{
+				dists[i] = pow( dists[i], 0.5); 
+			}
+		}
+
+
 		double sum=0,wsum=0;
 		for (int i = 0; i < k; i++)
 		{
-			dists[i] = sqrt(dists[i]);
+			//dists[i] = sqrt(dists[i]);
 			//cout << "\t" << i << "\t" << nnIdx[i] <<  "\t" << dataPts[ nnIdx[i] ][0] << "\t" << dataPts[ nnIdx[i] ][1] << "\t" << dists[i] << "\n";
 			sum += 1.0/dists[i] * src[	dataPts[ nnIdx[i] ][1]*height +
 														dataPts[ nnIdx[i] ][0]					];
@@ -1956,6 +2147,10 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst)
 
 		dst[ queryPt[1]*height + queryPt[0] ] = 1.0/wsum*sum;
 	}
+
+	cvMerge(b, g, r, 0, type);
+	cvNamedWindow("interpolation type", 1);
+	cvShowImage("interpolation type", type);
 
 	delete [] nnIdx;							// clean things up
 	delete [] dists;
@@ -4820,10 +5015,47 @@ void skewness(IplImage *src, IplImage *dst, int aperture=3)
 }
 
 void multiDensity(IplImage *src, IplImage *dst)
-{
-	const int n=4;
-	float theta[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
-	float radius[n] = {2, 5, 6, 8};
+{	
+	int width = src->width;
+	int height = src->height;
+	for(int k=0; k<n; k++)
+				{
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			double value = cvGetReal2D(src, j, i);
+
+			if(value)
+			{
+				/*for(int k=0; k<n; k++)
+				{*/
+					if( thetaS[k] >= value && value > thetaS[k+1] )
+					{
+						cvCircle(src, cvPoint(i, j), radius[k], cvScalarAll(0), -1);
+						cvSetReal2D(dst, j, i, 255);
+						break;
+					}
+				/*}*/
+			}
+		}
+	}
+				}
+}
+
+void multiDensity(IplImage *src, IplImage *dst, IplImage *gradientX, IplImage *gradientY)
+{	
+	IplImage *gradX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+	IplImage *gradY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
+	cvConvertScale(gradientX, gradX, 1, 0);
+	cvConvertScale(gradientY, gradY, 1, 0);
+	cvPow(gradX, gradX, 2);
+	cvPow(gradY, gradY, 2);
+
+	IplImage *gradient = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+	cvAdd(gradX, gradY, gradient);
+	cvPow(gradient, gradient, 0.5);
+	
 	
 	int width = src->width;
 	int height = src->height;
@@ -4831,17 +5063,27 @@ void multiDensity(IplImage *src, IplImage *dst)
 	{
 		for(int j=0; j < height; j++)
 		{
+			
 			double value = cvGetReal2D(src, j, i);
 
-			for(int k=0; k<n; k++)
-			{
-				if( theta[k] >= value && value > theta[k+1] )
+			if(value)
+			{				
+				if( cvGetReal2D(gradient, j, i) < 40)
 				{
-					cvCircle(src, cvPoint(i, j), radius[k], cvScalarAll(0), -1);
-					cvSetReal2D(dst, j, i, 255);
-					break;
+					
+					for(int k=0; k<n; k++)
+					{
+						if( thetaS[k] >= value && value > thetaS[k+1] )
+						{
+							cvCircle(src, cvPoint(i, j), radius[k], cvScalarAll(0), -1);
+							cvSetReal2D(dst, j, i, 255);
+							break;
+						}
+					}
+
 				}
 			}
+
 		}
 	}
 }
@@ -4988,11 +5230,11 @@ void display(void)
 
 			/*****	Skewness	*****/		
 			IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
-			skewness(img, feature, 3);
+			skewness(img, feature, 5);
 
-			multiDensity(feature, sample);
+			multiDensity(feature, sample, gradientX, gradientY);
 			
-			/*cvThreshold(feature, feature, 0.001, 255, CV_THRESH_BINARY);
+			/*cvThreshold(feature, feature, 0.00001, 255, CV_THRESH_BINARY);
 
 			double featureMin, featureMax;
 			cvMinMaxLoc(feature, &featureMin, &featureMax);
