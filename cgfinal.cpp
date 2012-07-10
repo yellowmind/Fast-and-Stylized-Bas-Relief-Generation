@@ -21,6 +21,7 @@
 #include "glm.h"
 
 //#include <cstdlib>
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <vector>
@@ -39,7 +40,7 @@ using namespace std;
 #define true 1
 #endif
 
-#define HistogramBins  1000
+#define HistogramBins  10000
 #define SIDE 29
 typedef pair<int, float> P;
 
@@ -100,7 +101,7 @@ GLfloat lightPos11[] = { 25.f, -15.0f, /*3131/*/(outputHeight*81.25 + 0.4375), 1
 GLfloat lightPos2[] = { -27.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
 GLfloat lightPos21[] = { 27.f, -15.0f, /*31*31/*/(outputHeight*81.25 + 0.4375), 1.0f };
 
-GLfloat threshold = 0.04;
+GLfloat threshold = 0.001;
 vector< vector<GLfloat> > heightList, laplaceList;
 vector<GLfloat> maxList;
 const int pyrLevel = 3;
@@ -111,7 +112,7 @@ vector<bool> bgMask;
 vector<GLfloat> outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
-IplImage *img0, *sample;
+IplImage *img0, *sample, *histImage;
 //vector<GLfloat> height;
 vector<GLfloat> compressedH, referenceHeight, sceneProfile, reliefProfile;
 int boundary =20;
@@ -121,7 +122,7 @@ int disp=0;
 const int n=4;
 //float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
 float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
-float radius[n] = {2, 3, 3, 3};
+float radius[n] = {10, 10, 10, 10};
 
 GLdouble *pThreadRelief = NULL;
 GLdouble *pThreadNormal = NULL;
@@ -132,6 +133,7 @@ GLint vertCount = 1;
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
 int method = 0, reference = 2;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
+int numNonZero;
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
 GLdouble projection[16], modelview[16], inverse[16];
@@ -1585,47 +1587,103 @@ struct setcomp {
 	}
 };
 
-void sortAddress(float src[], int dst[], const int size)
-{	
-	set<P, setcomp> s;
-
-	for(int i = 1; i < size; i++)
-	{
-		s.insert( P(i, src[i]) );
-	}
-	
-	set<P, setcomp>::iterator iter;
-	int i = 1;
-    for (iter = s.begin(); iter != s.end(); ++iter)
-    {
-		dst[i] = (*iter).first;
-		i++;
-    }
-
-}
-
-void sortAddress(double src[], int dst[], const int size)
-{	
-	set<P, setcomp> s;
-
-	for(int i = 1; i < size; i++)
-	{
-		s.insert( P(i, src[i]) );
-	}
-	
-	set<P, setcomp>::iterator iter;
-	int i = 1;
-    for (iter = s.begin(); iter != s.end(); ++iter)
-    {
-		dst[i] = (*iter).first;
-		i++;
-    }
-
-}
-
-void bucketsort(float src[], int dst[], int n, int k = HistogramBins*10)
+bool vectorcomp(const P& lhs, const P& rhs)
 {
-	vector< set<P, setcomp> > bucket;
+	if( lhs.second != rhs.second )
+		return lhs.second > rhs.second;
+	else
+		return lhs.first > rhs.first;
+}
+
+template <class T>
+void sortAddress(T src[], int dst[], const int size)
+{	
+	/*set<P, setcomp> s;
+
+	for(int i = 1; i < size; i++)
+	{
+		s.insert( P(i, src[i]) );
+	}
+	
+	set<P, setcomp>::iterator iter;
+	int i = 1;
+    for (iter = s.begin(); iter != s.end(); ++iter)
+    {
+		dst[i] = (*iter).first;
+		i++;
+    }*/
+
+	vector<P> v;
+
+	for(int i = 1; i < size; i++)
+	{
+		v.push_back( P(i, src[i]) );
+	}
+	sort(v.begin(), v.end(), vectorcomp);
+
+	vector<P>::iterator iter;
+	int i = 1;
+    for (iter = v.begin(); iter != v.end(); ++iter)
+    {
+		dst[i] = (*iter).first;
+		i++;
+    }
+
+}
+
+//void sortAddress(double src[], int dst[], const int size)
+//{	
+//	set<P, setcomp> s;
+//
+//	for(int i = 1; i < size; i++)
+//	{
+//		s.insert( P(i, src[i]) );
+//	}
+//	
+//	set<P, setcomp>::iterator iter;
+//	int i = 1;
+//    for (iter = s.begin(); iter != s.end(); ++iter)
+//    {
+//		dst[i] = (*iter).first;
+//		i++;
+//    }
+//
+//}
+
+void bucketsort(float src[], int dst[], int n, int k = HistogramBins/100)
+{
+	//vector< set<P, setcomp> > bucket;
+
+	//bucket.resize(k);
+
+	//float min = src[1], max = 0;
+	//for(int i=1; i<n; i++)
+	//{
+	//	if( max < src[i] )	max = src[i];
+	//	if( min > src[i] )	min = src[i];
+	//}
+
+	//for(int i=1; i<n; i++)
+	//{
+	//	/*P element;
+	//	element.first = i;
+	//	element.second = src[i];*/
+
+	//	bucket[ k - 1 - (int)( (src[i]-min) / (max-min) * (k-1) ) ].insert( P(i, src[i]) );
+	//}
+	//
+	//for(int i=1, j=0; i < n && j < k; j++)
+	//{
+	//	set<P, setcomp>::iterator iter;
+	//	
+	//	for (iter = bucket[j].begin(); iter != bucket[j].end(); ++iter)
+	//	{
+	//		dst[i] = (*iter).first;
+	//		i++;
+	//	}		
+	//}
+
+	vector< vector<P> > bucket;
 
 	bucket.resize(k);
 
@@ -1638,25 +1696,51 @@ void bucketsort(float src[], int dst[], int n, int k = HistogramBins*10)
 
 	for(int i=1; i<n; i++)
 	{
-		/*P element;
-		element.first = i;
-		element.second = src[i];*/
-
-		int value = floor( src[i]*n );
-		bucket[ k - 1 - (int)( (src[i]-min) / (max-min) * (k-1) ) ].insert( P(i, src[i]) );
+		bucket[ k - 1 - (int)( (src[i]-min) / (max-min) * (k-1) ) ].push_back( P(i, src[i]) );
 	}
+	
+
+	//static int isHist;
+	//if( isHist < 1920 )
+	//{
+	//	int hist[HistogramBins], histMax=0;
+	//	for(int i=0; i < k; i++)
+	//	{
+	//		hist[i] = bucket[i].size();
+	//		if(hist[i] > histMax)	histMax = hist[i];
+	//	}	
+	//	
+	//	//int bin_w = cvRound((double)histImage->width/k);
+
+	//	for(int i=0; i < k; i++)
+	//	{
+	//		int value = 255 - (double)(hist[i]*255)/histMax;
+	//		cvSetReal2D(histImage, i, isHist, 255 - (double)(hist[i]*255)/histMax);
+	//		/*cvRectangle( histImage, cvPoint(i*bin_w, histImage->height),
+	//		   cvPoint((i+1)*bin_w, 
+	//			histImage->height*( 1 - hist[i]/histMax ) ),
+	//		   cvScalarAll(0), -1, 8, 0 );*/
+	//	}
+	//	
+	//}
+	//else if( isHist == 1920)
+	//{
+	//	cvNamedWindow("bucket histogram", 1);
+	//	cvShowImage("bucket histogram", histImage);
+	//}
+	//isHist++;
 	
 	for(int i=1, j=0; i < n && j < k; j++)
 	{
-		set<P, setcomp>::iterator iter;
-		
+		vector<P>::iterator iter;
+
+		sort(bucket[j].begin(), bucket[j].end(), vectorcomp);
 		for (iter = bucket[j].begin(); iter != bucket[j].end(); ++iter)
 		{
 			dst[i] = (*iter).first;
 			i++;
 		}		
 	}
-	
 }
 
 void redistribute(float h[], float cumulative, float l)
@@ -1664,8 +1748,11 @@ void redistribute(float h[], float cumulative, float l)
 	l = cumulative*l / HistogramBins;
 
 	int sort[ HistogramBins+1 ];
-	bucketsort(h, sort, HistogramBins+1);
-	//sortAddress(h, sort, HistogramBins+1);
+	
+	//bucketsort(h, sort, HistogramBins+1);
+	sortAddress(h, sort, HistogramBins+1);
+
+	
 
 	int i;
 	float S = 0;
@@ -1722,6 +1809,8 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gr
 		gradientWeight(weight, ext);
 	}*/
 	
+	/*histImage = cvCreateImage(cvSize(1920,HistogramBins), 8, 1);
+	cvSet( histImage, cvScalarAll(255) );*/
 	
 	for(int i=0; i< srcHeight; i++)
 	{
@@ -1737,7 +1826,7 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gr
 			
 			if( src[ i*srcHeight + j ] == 0 )
 			{
-				dst[ i*srcHeight + j ] = 0;
+				//dst[ i*srcHeight + j ] = 0;
 			}
 
 			else
@@ -2017,7 +2106,7 @@ void knninterpolation(IplImage *src, IplImage *dst)
 	annClose();									// done with ANN
 }
 
-void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst)
+void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<GLfloat> &carve)
 {
 	string dataS,queryS;
 	int width = sqrt( (float)src.size() );
@@ -2109,7 +2198,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst)
 		//cout << "\tNN:\tIndex\tDistance\n";
 		
 
-		float thetaD = pow(2*(radius[0] + 1), 2);
+		float thetaD = 2*radius[0] + 23;
 
 		double distMax=0, distPrimeMax=0;
 		for(int i=0; i<4; i++)
@@ -2129,14 +2218,19 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst)
 			}
 		}
 
+		float alpha = 0.01;
 		if( distMax < thetaD )	//on  the edge
 		{
 			cvSetReal2D( r, height - 1 - queryPt[0], queryPt[1], 255);
 
+			double distMin=dists[1];
 			for (int i = 0; i < k; i++)
 			{
-				dists[i] = pow( dists[i], 1.5); 
+				if(distMin > dists[i]) distMin = dists[i];
+				dists[i] = pow( dists[i], 1.5);
 			}
+			
+			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+distMin*alpha);
 		}
 		else if( distPrimeMax < thetaD )	//close to an edge
 		{
@@ -2164,17 +2258,19 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst)
 					int sector2 = sector[ sort[j] ];
 					if( compareSector(sector1, sector2) )
 					{
-						int x2 = dataPts[ nnIdx[ sort[i] ] ][1];
-						int y2 = dataPts[ nnIdx[ sort[i] ] ][0];
+						int x2 = dataPts[ nnIdx[ sort[j] ] ][1];
+						int y2 = dataPts[ nnIdx[ sort[j] ] ][0];
 						if( abs( src[	x1*height + y1 ] - src[	x2*height + y2 ] ) > threshold )	//thetaV
 						{
 							dists[ sort[j] ]  *= 50;	//reduced by factor f
-						}									
+						}					
 					}
 					
 				}
 				
 			}
+
+			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+dists[k-1]*alpha);
 		}
 		else	//far from edges
 		{
@@ -2206,6 +2302,8 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst)
 	delete [] dists;
 	delete kdTree;
 	annClose();									// done with ANN
+
+
 }
 
 void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sample, IplImage *gradient=NULL, int aperture=33)
@@ -2323,7 +2421,32 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sa
 	}
 	/***** Equalization on Sample *****/
 
-	knninterpolation(dst, dst);
+	vector<GLfloat> carve;
+	carve.resize(src.size(), 0);
+	knninterpolation(dst, dst, carve);
+
+	GLfloat carveMax = 0;
+	for(int i=0; i< srcHeight; i++)
+	{
+		for(int j=0; j< srcHeight; j++)
+		{
+			//if( !bgMask[ i*height + j ] )
+			//{
+				if( carve[ i*srcHeight + j ] > carveMax ) carveMax = carve[ i*srcHeight + j ];
+			//}
+		}
+	}
+
+	for(int i=0; i< srcHeight; i++)
+	{
+		for(int j=0; j< srcHeight; j++)
+		{
+			if( !bgMask[ i*srcHeight + j ] )
+			{
+				dst[ i*srcHeight + j ] -= carve[ i*srcHeight + j ] *0.5 / carveMax;
+			}
+		}
+	}
 	
 }
 
@@ -3501,7 +3624,7 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 				vectorAdd(compressedH, AHEHeight, compressedH);
 				AHEHeight.clear();
 			}
-			//vectorScale(compressedH, compressedH, 1.0/n);
+			vectorScale(compressedH, compressedH, 1.0/n);
 			
 			IplImage *img, *img2, *imgGa;
 			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
@@ -3769,8 +3892,9 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 					equalizeHist(src, AHEHeight, weight, pow(2.0, k-1) * 8*2 + 1);
 					vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 					AHEHeight.clear();
+					AHEHeight.resize(size, 0);
 				}
-				//vectorScale(referenceHeight, referenceHeight, 1.0/n);
+				vectorScale(referenceHeight, referenceHeight, 1.0/n);
 				
 				int side = sqrt( (float)size );
 				IplImage *srcImg = cvCreateImage( cvSize(side, side), IPL_DEPTH_32F, 1);
@@ -3790,11 +3914,12 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 			{
 					for(int k=1; k <= n; k++)
 					{
-						equalizeHist(src, AHEHeight/*, sample *//*, pow(2.0, pyrLevel-1)*/, weight, pow(2.0, k-1) * 2*2 + 1);
+						equalizeHist(src, AHEHeight, sample /*, pow(2.0, pyrLevel-1)*/, weight, pow(2.0, k-1) * 16*2 + 1);
 						vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 						AHEHeight.clear();
+						AHEHeight.resize(size, 0);
 					}
-					//vectorScale(referenceHeight, referenceHeight, 1.0/n);
+					vectorScale(referenceHeight, referenceHeight, 1.0/n);
 			}
 
 			bgFilter(referenceHeight, bgMask);
@@ -5277,7 +5402,7 @@ void display(void)
 			/*IplImage *img =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
 			cvSetZero(img);
 			cvConvertScaleAbs(img0, img, 255);*/
-			int numNonZero = cvCountNonZero(Image);
+			numNonZero = cvCountNonZero(Image);
 			cvNamedWindow("Original Points", 1);
 			cvShowImage("Original Points", Image);
 
@@ -5285,9 +5410,9 @@ void display(void)
 			IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
 			skewness(Image, feature, 5);
 
-			//multiDensity(feature, sample, gradientX, gradientY);
+			multiDensity(feature, sample, gradientX, gradientY);
 			
-			/*cvThreshold(feature, feature, 0.00001, 255, CV_THRESH_BINARY);
+			/*cvThreshold(feature, feature, 0.000001, 255, CV_THRESH_BINARY);
 
 			double featureMin, featureMax;
 			cvMinMaxLoc(feature, &featureMin, &featureMax);
@@ -5313,10 +5438,16 @@ void display(void)
 			/*****	Harris Corner	*****/
 
 			/*****	Canny Edge	*****/
-			/*IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			Relief2Image(heightPyr[0], sample);	
-			numNonZero = cvCountNonZero(sample);
-			cvCanny(sample, feature, 0, 1);*/
+			//sample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			
+			/*double featureMin, featureMax;
+			cvMinMaxLoc(img0, &featureMin, &featureMax);
+			cout << "featureMax: " << featureMax << endl;
+			double scale = 255.0 / (featureMax - featureMin);   
+			double shift = -featureMin * scale;  
+			cvConvertScaleAbs(img0, sample, scale, shift);
+
+			cvCanny(sample, sample, 15, 25);*/
 			/*****	Canny Edge	*****/
 
 			cout << "#NonZero of Original: " << numNonZero << endl;		
@@ -5744,7 +5875,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("asain dragon.obj");
+	MODEL = glmReadOBJ("model/ramp2.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
