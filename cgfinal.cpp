@@ -77,6 +77,8 @@ bool    trackballMove = false;
 GLdouble TRACKM[16]={1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 GLfloat m[16]={1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 
+GLdouble ClipNear = 0.1, ClipFar = 25;
+
 GLdouble DEBUG_M[16];
 
 GLdouble Angle1=0, Angle2=0;
@@ -4478,7 +4480,7 @@ void openglPath(void)
 	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
 	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
 	//gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
-	gluPerspective(perspective[0], (GLfloat)(winWidth/3)/winHeight, perspective[2], perspective[3]); 
+	gluPerspective(perspective[0], (GLfloat)(winWidth/3)/winHeight, ClipNear, ClipFar); 
 	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
 
 
@@ -4533,6 +4535,7 @@ void openglPath(void)
 		glScaled(MODELSCALE, MODELSCALE, MODELSCALE);*/
 		glMultMatrixf(m);
 		glColor3f(1.0, 1.0, 1.0);
+		glScaled(MODELSCALE, MODELSCALE, MODELSCALE);
 		glmDraw(MODEL, GLM_SMOOTH);//GLM_FLAT
 		//glutSolidSphere(1, 20, 20);
 	glPopMatrix();
@@ -4952,6 +4955,69 @@ void world_display(void)
     glPopMatrix();
 }
 
+bool GetClipDistance() 
+{
+	float maxDepthPoint[3], minDepthPoint[3], max2DepthPoint[3];
+	maxDepthPoint[0] = 0, maxDepthPoint[1] = 0, maxDepthPoint[2] = 0;
+	minDepthPoint[2] = 1;
+
+	if( true )
+	{
+		glGetFloatv(GL_MODELVIEW_MATRIX, m);
+		glFlush();
+
+		float *depthmap = new float[winWidth0*winHeight0];
+		glReadPixels(0, 0, winWidth0, winHeight0, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
+
+		for(int i=boundary; i<winWidth0 - boundary; i++)
+		{
+			for(int j=boundary; j<winHeight0 - boundary; j++)
+			{
+				GLfloat depth = depthmap[j*winWidth0+i] ;
+				//glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+
+				if( maxDepthPoint[2] < depth && depth !=1)
+				{
+					max2DepthPoint[0] = maxDepthPoint[0];
+					max2DepthPoint[1] = maxDepthPoint[1];
+					max2DepthPoint[2] = maxDepthPoint[2];
+					
+					maxDepthPoint[0] = i;
+					maxDepthPoint[1] = j;
+					maxDepthPoint[2] = depth;
+				}
+				if( minDepthPoint[2] > depth)
+				{	
+					minDepthPoint[0] = i;
+					minDepthPoint[1] = j;
+					minDepthPoint[2] = depth;
+				}
+
+			}
+		}
+	
+
+		farPoint = GetOGLPos(maxDepthPoint);
+		far2Point = GetOGLPos(max2DepthPoint);
+		nearPoint = GetOGLPos(minDepthPoint);
+		printf("N=%f, F=%f\n", minDepthPoint[2], maxDepthPoint[2]);
+		printf("near (%f, %f, %f); far (%f, %f, %f)\n", nearPoint.n[0], nearPoint.n[1], nearPoint.n[2],
+			farPoint.n[0], farPoint.n[1], farPoint.n[2]);
+		CVector3 temp =  farPoint - nearPoint;
+
+		ClipNear = abs(4-nearPoint.n[2]);//-0.1*temp.Magnitude();
+		ClipFar = abs(4-farPoint.n[2]);//+0.1*temp.Magnitude();;
+		printf("Near=%f, Far=%f\n\n", ClipNear, ClipFar);
+		
+		dynamicRange = (nearPoint.n[2] - farPoint.n[2]) / (far2Point.n[2] - farPoint.n[2]);
+
+		scene = false;
+		delete [] depthmap;
+	}
+
+	return true;
+}
+
 //Oringinal Scene
 void display0(void)
 {
@@ -5043,54 +5109,54 @@ void display0(void)
 	//	glEnd();		*/
 	//glPopMatrix();
 
-		float maxDepthPoint[3], minDepthPoint[3], max2DepthPoint[3];
-		maxDepthPoint[0] = 0, maxDepthPoint[1] = 0, maxDepthPoint[2] = 0;
-		minDepthPoint[2] = 1;
+		//float maxDepthPoint[3], minDepthPoint[3], max2DepthPoint[3];
+		//maxDepthPoint[0] = 0, maxDepthPoint[1] = 0, maxDepthPoint[2] = 0;
+		//minDepthPoint[2] = 1;
 
-		if( scene )
-		{
-			glGetFloatv(GL_MODELVIEW_MATRIX, m);
+		//if( scene )
+		//{
+		//	glGetFloatv(GL_MODELVIEW_MATRIX, m);
 
-			float *depthmap = new float[winWidth0*winHeight0];
-			glReadPixels(0, 0, winWidth0, winHeight0, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
-			
-			for(int i=boundary; i<winWidth0 - boundary; i++)
-			{
-				for(int j=boundary; j<winHeight0 - boundary; j++)
-				{
-					GLfloat depth = depthmap[j*winWidth0 + i];
-					//glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+		//	float *depthmap = new float[winWidth0*winHeight0];
+		//	glReadPixels(0, 0, winWidth0, winHeight0, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
+		//	
+		//	for(int i=boundary; i<winWidth0 - boundary; i++)
+		//	{
+		//		for(int j=boundary; j<winHeight0 - boundary; j++)
+		//		{
+		//			GLfloat depth = depthmap[j*winWidth0 + i];
+		//			//glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
 
-					if( maxDepthPoint[2] < depth && depth !=1)
-					{
-						max2DepthPoint[0] = maxDepthPoint[0];
-						max2DepthPoint[1] = maxDepthPoint[1];
-						max2DepthPoint[2] = maxDepthPoint[2];
-						
-						maxDepthPoint[0] = i;
-						maxDepthPoint[1] = j;
-						maxDepthPoint[2] = depth;
-					}
-					if( minDepthPoint[2] > depth)
-					{	
-						minDepthPoint[0] = i;
-						minDepthPoint[1] = j;
-						minDepthPoint[2] = depth;
-					}
+		//			if( maxDepthPoint[2] < depth && depth !=1)
+		//			{
+		//				max2DepthPoint[0] = maxDepthPoint[0];
+		//				max2DepthPoint[1] = maxDepthPoint[1];
+		//				max2DepthPoint[2] = maxDepthPoint[2];
+		//				
+		//				maxDepthPoint[0] = i;
+		//				maxDepthPoint[1] = j;
+		//				maxDepthPoint[2] = depth;
+		//			}
+		//			if( minDepthPoint[2] > depth)
+		//			{	
+		//				minDepthPoint[0] = i;
+		//				minDepthPoint[1] = j;
+		//				minDepthPoint[2] = depth;
+		//			}
 
-				}
-			}
-			delete [] depthmap;
-		
+		//		}
+		//	}
+		//	delete [] depthmap;
+		//
 
-			farPoint = GetOGLPos(maxDepthPoint);
-			far2Point = GetOGLPos(max2DepthPoint);
-			nearPoint = GetOGLPos(minDepthPoint);
-			
-			dynamicRange = (nearPoint.n[2] - farPoint.n[2]) / (far2Point.n[2] - farPoint.n[2]);
+		//	farPoint = GetOGLPos(maxDepthPoint);
+		//	far2Point = GetOGLPos(max2DepthPoint);
+		//	nearPoint = GetOGLPos(minDepthPoint);
+		//	
+		//	dynamicRange = (nearPoint.n[2] - farPoint.n[2]) / (far2Point.n[2] - farPoint.n[2]);
 
-			scene = false;
-		}
+		//	scene = false;
+		//}
 	glPopMatrix();
 
 	//glViewport(0, 0, winWidth0, winHeight0);
@@ -5745,9 +5811,14 @@ void myKeys(unsigned char key, int x, int y)
 			scale -= 0.5; 
 			break;
 		/***** relief transformation *****/
+		case 'r':
+			ClipNear=0.3; 
+			ClipFar=100;
+			break;
 		//Space
 		case ' ':  
 			scene = true;
+			GetClipDistance();
 			break;
 		//Enter
 		case 13:  
