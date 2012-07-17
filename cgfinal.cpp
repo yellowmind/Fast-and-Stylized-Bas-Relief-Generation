@@ -114,7 +114,7 @@ vector<bool> bgMask;
 vector<GLfloat> outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
-IplImage *img0, *sample, *histImage;
+IplImage *img0, *sample, *edge,*histImage;
 //vector<GLfloat> height;
 vector<GLfloat> compressedH, referenceHeight, sceneProfile, reliefProfile;
 int boundary =20;
@@ -124,7 +124,7 @@ int disp=0;
 const int n=4;
 //float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
 float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
-float radius[n] = {10, 10, 10, 10};
+float radius[n] = {2, 4, 5, 6};
 
 GLdouble *pThreadRelief = NULL;
 GLdouble *pThreadNormal = NULL;
@@ -1522,6 +1522,11 @@ double distanceWeight(int x, int y, int u, int v,int m)
 	return pow(M_E, -d*d/(2*m) );
 }
 
+double distanceWeight(double d,int m)
+{
+	return pow(M_E, -d*d/(2*m) );
+}
+
 void gradientWeight(vector<GLfloat> &src, int ext)
 {
 	int srcHeight = sqrt( (float)src.size() );
@@ -2108,7 +2113,7 @@ void knninterpolation(IplImage *src, IplImage *dst)
 	annClose();									// done with ANN
 }
 
-void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<GLfloat> &carve)
+void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<GLfloat> &carve, int m=0)
 {
 	string dataS,queryS;
 	int width = sqrt( (float)src.size() );
@@ -2121,14 +2126,14 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 		{
 			if( !bgMask[ i*height + j ] )
 			{
-				if( src[ i*height+j ] )
+				if( cvGetReal2D(sample, height - 1 - j, i) )
 				{
 					dataS += itoa(j, buffer, 10);
 					dataS += " ";
 					dataS += itoa(i, buffer, 10);
 					dataS += "\n";
 				}
-				else
+				else if( !cvGetReal2D(edge, height - 1 - j, i) )
 				{
 					queryS += itoa(j, buffer, 10);
 					queryS += " ";
@@ -2200,7 +2205,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 		//cout << "\tNN:\tIndex\tDistance\n";
 		
 
-		float thetaD = 2*radius[0] + 23;
+		float thetaD = 2*radius[0] + 1;
 
 		double distMax=0, distPrimeMax=0;
 		for(int i=0; i<4; i++)
@@ -2219,6 +2224,9 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 				}
 			}
 		}
+
+		distMax = sqrt(distMax);
+		distPrimeMax = sqrt(distPrimeMax);
 
 		float alpha = 0.01;
 		if( distMax < thetaD )	//on  the edge
@@ -2279,7 +2287,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 			for (int i = 0; i < k; i++)
 			{
 				dists[i] = pow( dists[i], 0.5); 
-			}
+			}		
 		}
 
 
@@ -2288,9 +2296,20 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 		{
 			//dists[i] = sqrt(dists[i]);
 			//cout << "\t" << i << "\t" << nnIdx[i] <<  "\t" << dataPts[ nnIdx[i] ][0] << "\t" << dataPts[ nnIdx[i] ][1] << "\t" << dists[i] << "\n";
-			sum += 1.0/dists[i] * src[	dataPts[ nnIdx[i] ][1]*height +
+			if( m )
+			{
+				double weight = distanceWeight(dists[i], radius[n-1]);
+				sum += weight * src[	dataPts[ nnIdx[i] ][1]*height +
 														dataPts[ nnIdx[i] ][0]					];
-			wsum += 1.0/dists[i];
+				wsum += weight;
+			}
+			else
+			{
+				double weight = 1.0/dists[i];
+				sum += weight * src[	dataPts[ nnIdx[i] ][1]*height +
+															dataPts[ nnIdx[i] ][0]					];
+				wsum += weight;
+			}
 		}
 
 		dst[ queryPt[1]*height + queryPt[0] ] = 1.0/wsum*sum;
@@ -2327,13 +2346,13 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sa
 		gradientWeight(weight, ext);
 	}*/
 	
-	/***** Equalization on Sample *****/
+	/***** Equalization on Sample & Edge*****/
 	for(int i=0; i< srcHeight; i++)
 	{
 		//#pragma omp parallel for private(hist)
 		for(int j=0; j< srcHeight; j++)
 		{
-			if( cvGetReal2D(sample, srcHeight - 1 - j, i) )
+			if( cvGetReal2D(sample, srcHeight - 1 - j, i) || cvGetReal2D(edge, srcHeight - 1 - j, i) )
 			{
 			
 				float hist[ HistogramBins+1 ];
@@ -2427,28 +2446,28 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sa
 	carve.resize(src.size(), 0);
 	knninterpolation(dst, dst, carve);
 
-	GLfloat carveMax = 0;
-	for(int i=0; i< srcHeight; i++)
-	{
-		for(int j=0; j< srcHeight; j++)
-		{
-			//if( !bgMask[ i*height + j ] )
-			//{
-				if( carve[ i*srcHeight + j ] > carveMax ) carveMax = carve[ i*srcHeight + j ];
-			//}
-		}
-	}
+	//GLfloat carveMax = 0;
+	//for(int i=0; i< srcHeight; i++)
+	//{
+	//	for(int j=0; j< srcHeight; j++)
+	//	{
+	//		//if( !bgMask[ i*height + j ] )
+	//		//{
+	//			if( carve[ i*srcHeight + j ] > carveMax ) carveMax = carve[ i*srcHeight + j ];
+	//		//}
+	//	}
+	//}
 
-	for(int i=0; i< srcHeight; i++)
-	{
-		for(int j=0; j< srcHeight; j++)
-		{
-			if( !bgMask[ i*srcHeight + j ] )
-			{
-				dst[ i*srcHeight + j ] -= carve[ i*srcHeight + j ] *0.5 / carveMax;
-			}
-		}
-	}
+	//for(int i=0; i< srcHeight; i++)
+	//{
+	//	for(int j=0; j< srcHeight; j++)
+	//	{
+	//		if( !bgMask[ i*srcHeight + j ] )
+	//		{
+	//			dst[ i*srcHeight + j ] -= carve[ i*srcHeight + j ] *0.5 / carveMax;
+	//		}
+	//	}
+	//}
 	
 }
 
@@ -4480,7 +4499,7 @@ void openglPath(void)
 	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
 	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
 	//gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 25); 
-	gluPerspective(perspective[0], (GLfloat)(winWidth/3)/winHeight, ClipNear, ClipFar); 
+	gluPerspective(perspective[0], (GLfloat)(winWidth/3)/winHeight, perspective[2], perspective[3]); 
 	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
 
 
@@ -4535,7 +4554,6 @@ void openglPath(void)
 		glScaled(MODELSCALE, MODELSCALE, MODELSCALE);*/
 		glMultMatrixf(m);
 		glColor3f(1.0, 1.0, 1.0);
-		glScaled(MODELSCALE, MODELSCALE, MODELSCALE);
 		glmDraw(MODEL, GLM_SMOOTH);//GLM_FLAT
 		//glutSolidSphere(1, 20, 20);
 	glPopMatrix();
@@ -4961,9 +4979,9 @@ bool GetClipDistance()
 	maxDepthPoint[0] = 0, maxDepthPoint[1] = 0, maxDepthPoint[2] = 0;
 	minDepthPoint[2] = 1;
 
-	if( true )
-	{
-		glGetFloatv(GL_MODELVIEW_MATRIX, m);
+	/*if( true )
+	{*/
+		/*glGetFloatv(GL_MODELVIEW_MATRIX, m);*/
 		glFlush();
 
 		float *depthmap = new float[winWidth0*winHeight0];
@@ -5005,15 +5023,15 @@ bool GetClipDistance()
 			farPoint.n[0], farPoint.n[1], farPoint.n[2]);
 		CVector3 temp =  farPoint - nearPoint;
 
-		ClipNear = abs(4-nearPoint.n[2]);//-0.1*temp.Magnitude();
-		ClipFar = abs(4-farPoint.n[2]);//+0.1*temp.Magnitude();;
-		printf("Near=%f, Far=%f\n\n", ClipNear, ClipFar);
+		perspective[2] = abs(lookat[2]-nearPoint.n[2]);//-0.1*temp.Magnitude();
+		perspective[3] = abs(lookat[2]-farPoint.n[2]);//+0.1*temp.Magnitude();;
+		printf("Near=%f, Far=%f\n\n", perspective[2], perspective[3]);
 		
 		dynamicRange = (nearPoint.n[2] - farPoint.n[2]) / (far2Point.n[2] - farPoint.n[2]);
 
-		scene = false;
+		//scene = false;
 		delete [] depthmap;
-	}
+	/*}*/
 
 	return true;
 }
@@ -5113,9 +5131,9 @@ void display0(void)
 		//maxDepthPoint[0] = 0, maxDepthPoint[1] = 0, maxDepthPoint[2] = 0;
 		//minDepthPoint[2] = 1;
 
-		//if( scene )
-		//{
-		//	glGetFloatv(GL_MODELVIEW_MATRIX, m);
+		if( scene )
+		{
+			glGetFloatv(GL_MODELVIEW_MATRIX, m);
 
 		//	float *depthmap = new float[winWidth0*winHeight0];
 		//	glReadPixels(0, 0, winWidth0, winHeight0, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
@@ -5155,8 +5173,8 @@ void display0(void)
 		//	
 		//	dynamicRange = (nearPoint.n[2] - farPoint.n[2]) / (far2Point.n[2] - farPoint.n[2]);
 
-		//	scene = false;
-		//}
+			scene = false;
+		}
 	glPopMatrix();
 
 	//glViewport(0, 0, winWidth0, winHeight0);
@@ -5504,16 +5522,18 @@ void display(void)
 			/*****	Harris Corner	*****/
 
 			/*****	Canny Edge	*****/
-			//sample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			edge =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
 			
-			/*double featureMin, featureMax;
+			double featureMin, featureMax;
 			cvMinMaxLoc(img0, &featureMin, &featureMax);
 			cout << "featureMax: " << featureMax << endl;
 			double scale = 255.0 / (featureMax - featureMin);   
 			double shift = -featureMin * scale;  
-			cvConvertScaleAbs(img0, sample, scale, shift);
+			cvConvertScaleAbs(img0, edge, scale, shift);
 
-			cvCanny(sample, sample, 15, 25);*/
+			cvCanny(edge, edge, 15, 25);
+			cvNamedWindow("Edge Map", 1);
+			cvShowImage("Edge Map", edge);
 			/*****	Canny Edge	*****/
 
 			cout << "#NonZero of Original: " << numNonZero << endl;		
@@ -5812,8 +5832,8 @@ void myKeys(unsigned char key, int x, int y)
 			break;
 		/***** relief transformation *****/
 		case 'r':
-			ClipNear=0.3; 
-			ClipFar=100;
+			perspective[2]=0.3; 
+			perspective[3]=100;
 			break;
 		//Space
 		case ' ':  
@@ -5946,7 +5966,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("model/ramp2.obj");
+	MODEL = glmReadOBJ("model/asain dragon.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
