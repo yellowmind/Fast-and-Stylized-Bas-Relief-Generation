@@ -69,6 +69,8 @@ inline double log2(double x)
 //using namespace cv;
 
 int 	winWidth0, winHeight0, winWidth, winHeight;
+int windowHeight = 440, horizontalSplit = 3;
+int Window0, Window;
 
 float 	angle = 0.0, axis[3], trans[3];
 bool 	trackingMouse = false;
@@ -124,7 +126,7 @@ int disp=0;
 const int n=4;
 //float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
 float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
-float radius[n] = {2, 4, 5, 6};
+float radius[n] = {2, 5, 7, 9};
 
 GLdouble *pThreadRelief = NULL;
 GLdouble *pThreadNormal = NULL;
@@ -134,11 +136,12 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 0, reference = 2;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
+int method = 0, reference = 3;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
 int numNonZero;
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
 GLdouble projection[16], modelview[16], inverse[16];
+GLint viewport[4];
 /*----------------------------------------------------------------------*/
 /*
 ** Draw the wireflame cube.
@@ -507,10 +510,17 @@ void setNormal(double v[3][3], double out[3])				// Calculates Normal For A Quad
 }
 
 template <class T>
-void Relief2Image(vector<T> src, IplImage *dst)
+void Relief2Image(vector<T> src, IplImage *dst, int height=0)
 {
-	int width = sqrt( (float) src.size() );
-	int height = sqrt( (float) src.size() );
+	if(height)
+	{
+
+	}
+	else
+	{
+		height = sqrt( (float) src.size() );
+	}
+	int width = src.size()/ height;
 
 	
 	for(int i=0; i < width; i++)
@@ -569,11 +579,26 @@ void Image2Relief(IplImage *src, vector<GLdouble> &dst)
 	}
 }
 
-void subSample(vector<GLfloat> array1, vector<GLfloat> &array2)
+void subSample(vector<GLfloat> array1, vector<GLfloat> &array2, int height =0)
 {
-	int width = sqrt( (float) array1.size() );
-	int height = sqrt( (float) array1.size() );
-	//int  height = winHeight - boundary*2;
+	/*int width = sqrt( (float) array1.size() );
+	int height = sqrt( (float) array1.size() );*/
+	if(height)
+	{}
+	else
+	{
+		height = sqrt( (float) array1.size() );
+	}
+
+	int width;
+	if(height)
+	{
+		width = array1.size()/height;
+	}
+	else
+	{
+		width = 0;
+	}
 	
 	GLfloat sum;
 	for(int i=0; i < width-1; i+=2)
@@ -586,12 +611,27 @@ void subSample(vector<GLfloat> array1, vector<GLfloat> &array2)
 	}
 }
 
-void upSample(vector<GLfloat> array1, vector<GLfloat> &array2)
+void upSample(vector<GLfloat> array1, vector<GLfloat> &array2, int height =0)
 {
-	int width = sqrt( (float) array1.size() );
-	int height = sqrt( (float) array1.size() );
-	/*int width = winWidth/3 - boundary*2;
-	int  height = winHeight - boundary*2;*/
+	/*int width = sqrt( (float) array1.size() );
+	int height = sqrt( (float) array1.size() );*/
+	if(height)
+	{}
+	else
+	{
+		height = sqrt( (float) array1.size() );
+	}
+
+	int width;
+	if(height)
+	{
+		width = array1.size()/height;
+	}
+	else
+	{
+		width = 0;
+	}
+
 	float A,B,C,D;
 	int x, y, index;
 	float x_ratio = ( (float)(width-1) ) / (width*2 );
@@ -630,10 +670,17 @@ void upSample(vector<GLfloat> array1, vector<GLfloat> &array2)
 	}
 }
 
-void reliefSub(vector<GLfloat> &src1, vector<GLfloat> &src2, vector<GLfloat> &dst)
+void reliefSub(vector<GLfloat> &src1, vector<GLfloat> &src2, vector<GLfloat> &dst, int height=0)
 {
-	int width = sqrt( (float) src1.size() );;
-	int  height = sqrt( (float) src1.size() );;
+	/*int width = sqrt( (float) src1.size() );
+	int  height = sqrt( (float) src1.size() );*/
+	if(height)
+	{}
+	else
+	{
+		height = sqrt( (float) src1.size() );
+	}
+	int width = src1.size()/height;
 	
 	for(int i=0; i < width; i++)
 	{
@@ -645,10 +692,17 @@ void reliefSub(vector<GLfloat> &src1, vector<GLfloat> &src2, vector<GLfloat> &ds
 	}
 }
 
-void reliefAdd(vector<GLfloat> &src1, vector<GLfloat> &src2)
+void reliefAdd(vector<GLfloat> &src1, vector<GLfloat> &src2, int height=0)
 {
-	int width = sqrt( (float) src1.size() );;
-	int  height = sqrt( (float) src1.size() );;
+	/*int width = sqrt( (float) src1.size() );
+	int  height = sqrt( (float) src1.size() );*/
+	if(height)
+	{}
+	else
+	{
+		height = sqrt( (float) src1.size() );
+	}
+	int width = src1.size()/height;
 	
 	for(int i=0; i < width; i++)
 	{
@@ -660,10 +714,17 @@ void reliefAdd(vector<GLfloat> &src1, vector<GLfloat> &src2)
 	}
 }
 
-void reliefAdd(vector<GLfloat> &src1, vector<GLfloat> &src2, vector<GLfloat> &dst)
+void reliefAdd(vector<GLfloat> &src1, vector<GLfloat> &src2, vector<GLfloat> &dst, int height=0)
 {
-	int width = sqrt( (float) src1.size() );;
-	int  height = sqrt( (float) src1.size() );;
+	/*int width = sqrt( (float) src1.size() );
+	int  height = sqrt( (float) src1.size() );*/
+	if(height)
+	{}
+	else
+	{
+		height = sqrt( (float) src1.size() );
+	}
+	int width = src1.size()/height;
 	
 	for(int i=0; i < width; i++)
 	{
@@ -809,10 +870,26 @@ void remapping(vector<GLfloat> &dst, GLfloat g, GLfloat threshold, GLfloat alpha
 	}
 }
 
-void updateLaplace(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat*> dst)
+void updateLaplace(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat*> dst, int height=0)
 {
-	int width = sqrt( (float) src2.size() );
-	int  height = sqrt( (float) src2.size() );
+	/*int width = sqrt( (float) src2.size() );
+	int  height = sqrt( (float) src2.size() );*/
+	if(height)
+	{}
+	else
+	{
+		height = sqrt( (float) src2.size() );
+	}
+
+	int width;
+	if(height)
+	{
+		width = src2.size()/height;
+	}
+	else
+	{
+		width = 0;
+	}
 	
 	for(int i=0; i < width; i++)
 	{
@@ -827,10 +904,15 @@ void updateLaplace(vector<GLfloat> src1, vector<GLfloat> src2, vector<GLfloat*> 
 	}
 }
 
-void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, float alpha, float beta, int aperture=7)
+void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, float alpha, float beta, int height=0, int aperture=7)
 {
-	int width = sqrt( (float) src.size() );
-	int  height = sqrt( (float) src.size() );
+	if(height)
+	{}
+	else
+	{
+		height = sqrt( (float) src.size() );
+	}
+	int width = src.size() / height;
 
 	dst.clear();
 	//vector<GLfloat> *m_src;
@@ -857,11 +939,11 @@ void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, float alpha, flo
 			vector<GLfloat*> subLaplace;
 
 			int ext = (aperture-1) / 2;
-			if(i >= ext  && j >= ext && i+ext < width && j+ext < height)
+			if(i >= ext  && j >= ext && i+ext+1 < width && j+ext+1 < height)
 			{
-				for(int p=-ext; p <=ext; p++)
+				for(int p=-ext; p <=ext+1; p++)
 				{
-					for(int q=-ext; q <=ext; q++)
+					for(int q=-ext; q <=ext+1; q++)
 					{
 						//window[ aperture * (p+ext)  +  q+ext ] = cvGetReal2D(src, i+p, j+q);
 						sub.push_back(  src.at( (i+p)*height + j+q )  );
@@ -902,11 +984,11 @@ void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, float alpha, flo
 			/*IplImage *img0, *img1, *imgUp;
 			
 			int width = sqrt( (float)sub.size() );
-			img0 = cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);	
+			img0 = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);	
 			Relief2Image(sub, img0);
 			
-			img1 = cvCreateImage( cvSize( ( width+1)/2, (width+1)/2 ), IPL_DEPTH_32F, 1);
-			imgUp = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+			img1 = cvCreateImage( cvSize( ( width+1)/2, (height+1)/2 ), IPL_DEPTH_32F, 1);
+			imgUp = cvCreateImage( cvSize( width,  height), IPL_DEPTH_32F, 1);
 			cvPyrDown(img0, img1);*/
 			/*for(int i=0; i < img1->width; i++)
 			{
@@ -935,10 +1017,17 @@ void laplacianFilter(vector<GLfloat> src, vector<GLfloat> &dst, float alpha, flo
 	}
 }
 
-void bgFilter(vector<float> &src, vector<bool> mask)
+void bgFilter(vector<float> &src, vector<bool> mask, int height=0)
 {
-	int width = sqrt( (float) src.size() );
-	int height = sqrt( (float) src.size() );
+	/*int width = sqrt( (float) src.size() );
+	int height = sqrt( (float) src.size() );*/
+	if(height)
+	{}
+	else
+	{
+		height = sqrt( (float) src.size() );
+	}
+	int width = src.size()/height;
 	
 	for(int i=0; i < width; i++)
 	{
@@ -969,7 +1058,7 @@ void bgFilter(IplImage *src, IplImage  *mask)
 	}
 }
 
-void extractOutline(vector<float> src, vector<float> &dst, int boolean=0)
+void extractOutline(vector<float> src, vector<float> &dst, int height=0, int boolean=0)
 {
 	dst.clear();
 	for(int i=0; i < src.size(); i++)
@@ -977,8 +1066,14 @@ void extractOutline(vector<float> src, vector<float> &dst, int boolean=0)
 		dst.push_back(0);
 	}	
 	
-	int width = sqrt( (float) src.size() );
-	int height = sqrt( (float) src.size() );
+	if(height)
+	{
+	}
+	else
+	{
+		height = sqrt( (float) src.size() );
+	}
+	int width = src.size() / height;
 	
 	for(int i=0; i < width; i++)
 	{
@@ -1020,10 +1115,28 @@ void extractOutline(IplImage *src, IplImage *dst, int boolean=0)
 			if( cvGetReal2D( src, j, i)  != 0)
 			{
 				//not avoiding boundary issues
-				if(	cvGetReal2D( src, j+1, i ) == 0 ||
-					cvGetReal2D( src, j, i+1 ) == 0 ||
-					cvGetReal2D( src, j-1, i) == 0 ||
-					cvGetReal2D( src, j, i-1 ) == 0 )
+				int up=0,down=0,left=0,right=0;
+				if( i-1 > 0 )
+				{
+					right=1;
+				}
+				if( i+1 < width )
+				{
+					left=1;
+				}
+				if( j-1 > 0 )
+				{
+					down=1;
+				}
+				if( j+1 < height )
+				{
+					up=1;
+				}
+
+				if(	cvGetReal2D( src, j+up, i ) == 0 ||
+					cvGetReal2D( src, j, i+left ) == 0 ||
+					cvGetReal2D( src, j-down, i) == 0 ||
+					cvGetReal2D( src, j, i-right ) == 0 )
 				{
 					if(boolean)
 					{
@@ -1040,9 +1153,6 @@ void extractOutline(IplImage *src, IplImage *dst, int boolean=0)
 }
 
 
-
-
-
 void recordMax(vector<GLfloat> v)
 {
 	vector<GLfloat>::iterator first = v.begin();
@@ -1052,7 +1162,7 @@ void recordMax(vector<GLfloat> v)
 
 void BuildRelief(vector<GLfloat> &height, GLdouble *pThreadRelief, GLdouble *pThreadNormal)
 {
-	for(int i=0; i < height.size() / (winHeight - boundary*2) - 1; i++)
+	for(int i=0; i < /*height.size() / (winHeight - boundary*2)*/winWidth/horizontalSplit - boundary*2 - 1; i++)
 		{
 			for(int j=0; j < winHeight - boundary*2 -1; j++)
 			{
@@ -1218,10 +1328,12 @@ void firstLaplace(void)
 			heightList.push_back(heightPyr[0]);
 			IplImage *img1, *imgUP, *imgLa;
 
-			int width = sqrt( (float) heightPyr[0].size() );
+			//int width = sqrt( (float) heightPyr[0].size() );
 			//int height = sqrt( (float) height[0].size() );
-			img0 = cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);	
-			Relief2Image(heightPyr[0], img0);
+			int height = winHeight - boundary*2;
+			int width = heightPyr[0].size() / height;
+			img0 = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);	
+			Relief2Image(heightPyr[0], img0, winHeight - boundary*2);
 			imgPyr = cvCreatePyramid(img0, pyrLevel, 0.5);
 			for(int i=0; i < pyrLevel-1; i++)
 			{
@@ -1240,7 +1352,7 @@ void firstLaplace(void)
 			//upSample(height2, upHeight);
 			//reliefSub(height, upHeight, laplace);
 
-			laplacianFilter(heightPyr[0], laplace, alpha[0], beta[0]);
+			laplacianFilter(heightPyr[0], laplace, alpha[0], beta[0], winHeight - boundary*2);
 			laplaceList.clear();
 			laplaceList.push_back(laplace);
 
@@ -1267,15 +1379,25 @@ void firstLaplace(void)
 		if( winHeight || winWidth )
 		{
 			int height = winHeight - boundary*2;
-			int width = heightPyr[0].size() / height;
+			int width = winWidth/3 - boundary*2;
 			if( profile0 )
 			{			
 				sceneProfile.clear();
 				
 				for(int i=0; i < width - 1; i++)
 				{			
-					sceneProfile.push_back( (heightPyr[0][199 + i*height] + heightPyr[0][200 + i*height]) / 2 );
+					/*if( winHeight%2 == 0 )
+					{
+						sceneProfile.push_back( (heightPyr[0][(winHeight-1)/2 + i*height] + heightPyr[0][(winHeight+1)/2 + i*height]) / 2 );
+					}
+					else
+					{
+						sceneProfile.push_back( heightPyr[0][winHeight/2 + i*height] );
+					}*/
+					sceneProfile.push_back( ( heightPyr[0][ floor( (height-1)/2.0 ) + i*height ] + heightPyr[0][ ceil( (height-1)/2.0 ) + i*height ] ) / 2 );
 				}
+
+				
 
 				IplImage *profileImg = cvCreateImage( cvSize( width, height ), IPL_DEPTH_8U, 1);
 				cvSet( profileImg, cvScalar(208) );
@@ -1304,7 +1426,7 @@ void firstLaplace(void)
 		if( winHeight || winWidth )
 		{
 			int height = winHeight - boundary*2;
-			int width = heightPyr[0].size() / height;
+			int width = winWidth/3 - boundary*2;
 			
 			if(mesh1)
 			{			
@@ -1438,7 +1560,7 @@ void partition2(void)
 	
 	//swOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
 	//swFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 300); 
+	gluPerspective(60, (GLfloat)(winWidth/horizontalSplit)/winHeight, 0.1, 300); 
 
     glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
@@ -1498,7 +1620,7 @@ void partition3(void)
 	
 	//swOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
 	//swFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
-	gluPerspective(60, (GLfloat)(winWidth/3)/winHeight, 0.1, 300); 
+	gluPerspective(60, (GLfloat)(winWidth/horizontalSplit)/winHeight, 0.1, 300); 
 
     glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
@@ -1527,9 +1649,15 @@ double distanceWeight(double d,int m)
 	return pow(M_E, -d*d/(2*m) );
 }
 
-void gradientWeight(vector<GLfloat> &src, int ext)
+void gradientWeight(vector<GLfloat> &src, int ext, int srcHeight=0)
 {
-	int srcHeight = sqrt( (float)src.size() );
+	if(srcHeight)
+	{}
+	else
+	{
+		srcHeight = sqrt( (float)src.size() );
+	}
+	int srcWidth = src.size() / srcHeight;
 	vector<GLfloat> dst;
 
 	for(int i=0; i< srcHeight; i++)
@@ -1797,9 +1925,15 @@ void redistribute(float h[], float cumulative, float l)
 	}
 }
 
-void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gradient=NULL, int aperture=33)
+void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
 {	
-	int srcHeight = sqrt( (float)src.size() );
+	if(srcHeight)
+	{}
+	else
+	{
+		srcHeight = sqrt((float)src.size());
+	}
+	int srcWidth = src.size() / srcHeight;
 	
 	vector<GLfloat> weight;
 	if( gradient != NULL)
@@ -1813,7 +1947,7 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gr
 	int ext = (aperture-1) / 2;
 	/*if( gradient != NULL)
 	{
-		gradientWeight(weight, ext);
+		gradientWeight(weight, ext, srcHeight);
 	}*/
 	
 	/*histImage = cvCreateImage(cvSize(1920,HistogramBins), 8, 1);
@@ -2116,8 +2250,8 @@ void knninterpolation(IplImage *src, IplImage *dst)
 void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<GLfloat> &carve, int m=0)
 {
 	string dataS,queryS;
-	int width = sqrt( (float)src.size() );
-	int height = width;
+	int height = winHeight - boundary*2;
+	int width = src.size() / height;
 
 	char buffer [10];
 	for(int i=0; i < width; i++)
@@ -2133,7 +2267,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 					dataS += itoa(i, buffer, 10);
 					dataS += "\n";
 				}
-				else if( !cvGetReal2D(edge, height - 1 - j, i) )
+				else /*if( !cvGetReal2D(edge, height - 1 - j, i) )*/
 				{
 					queryS += itoa(j, buffer, 10);
 					queryS += " ";
@@ -2236,11 +2370,16 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 			double distMin=dists[1];
 			for (int i = 0; i < k; i++)
 			{
+				dists[i] = pow( dists[i], 0.5);
 				if(distMin > dists[i]) distMin = dists[i];
-				dists[i] = pow( dists[i], 1.5);
 			}
 			
-			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+distMin*alpha);
+			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[3], 0)*alpha);
+
+			for (int i = 0; i < k; i++)
+			{
+				dists[i] = pow( dists[i], 3);
+			}
 		}
 		else if( distPrimeMax < thetaD )	//close to an edge
 		{
@@ -2262,7 +2401,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 				int x1 = dataPts[ nnIdx[ sort[i] ] ][1];
 				int y1 = dataPts[ nnIdx[ sort[i] ] ][0];				
 				
-				for(int j=i-1; j>-0; j--)
+				for(int j=i-1; j>0; j--)
 				{
 					
 					int sector2 = sector[ sort[j] ];
@@ -2280,7 +2419,12 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 				
 			}
 
-			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+dists[k-1]*alpha);
+			for (int i = 0; i < k; i++)
+			{
+				dists[i] = pow( dists[i], 0.5); 
+			}		
+
+			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( dists[k-1]-radius[3], 0)*alpha);
 		}
 		else	//far from edges
 		{
@@ -2327,14 +2471,20 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 
 }
 
-void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sample, IplImage *gradient=NULL, int aperture=33)
+void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sample, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
 {	
-	int srcHeight = sqrt( (float)src.size() );
+	if(srcHeight)
+	{}
+	else
+	{
+		srcHeight = sqrt((float)src.size());
+	}
+	int srcWidth = src.size() / srcHeight;
 	
 	vector<GLfloat> weight;
 	if( gradient != NULL)
 	{		
-		if( srcHeight != gradient->height || srcHeight != gradient->width ) return;
+		if( srcHeight != gradient->height || srcWidth != gradient->width ) return;
 
 		compress(gradient);
 		Image2Relief(gradient, weight);
@@ -2343,11 +2493,11 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sa
 	int ext = (aperture-1) / 2;
 	/*if( gradient != NULL)
 	{
-		gradientWeight(weight, ext);
+		gradientWeight(weight, ext, srcHeight);
 	}*/
 	
 	/***** Equalization on Sample & Edge*****/
-	for(int i=0; i< srcHeight; i++)
+	for(int i=0; i< srcWidth; i++)
 	{
 		//#pragma omp parallel for private(hist)
 		for(int j=0; j< srcHeight; j++)
@@ -2471,8 +2621,16 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sa
 	
 }
 
-void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing = 16, IplImage *gradient=NULL, int aperture=33)
+void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing = 16, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
 {	
+	if(srcHeight)
+	{}
+	else
+	{
+		srcHeight = sqrt((float)src.size());
+	}
+	int srcWidth = src.size() / srcHeight;
+
 	vector<GLfloat> weight;
 	if( gradient != NULL)
 	{		
@@ -2483,11 +2641,11 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 	int ext = (aperture-1) / 2;
 	/*if( gradient != NULL)
 	{
-		gradientWeight(weight, ext);
+		gradientWeight(weight, ext, srcWidth);
 	}*/
 	
-	int srcHeight = sqrt( (float)src.size() );
-	for(int i=spacing/2; i< srcHeight; i+=spacing)
+	
+	for(int i=spacing/2; i< srcWidth; i+=spacing)
 	{
 		//#pragma omp parallel for private(hist)
 		for(int j=spacing/2; j< srcHeight; j+=spacing)
@@ -2578,7 +2736,7 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 	
 	IplImage *srcImg = cvCreateImage( cvSize(gradient->width/spacing, gradient->height/spacing), IPL_DEPTH_32F, 1);
 
-	for(int i=0; i< srcHeight/spacing; i++)
+	for(int i=0; i< srcWidth/spacing; i++)
 	{
 		for(int j=0; j< srcHeight/spacing; j++)
 		{
@@ -2614,8 +2772,16 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 		
 }
 
-void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> *dst, IplImage *gradient=NULL, int aperture=33)
+void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> *dst, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
 {	
+	if(srcHeight)
+	{}
+	else
+	{
+		srcHeight = sqrt((float)src.size());
+	}
+	int srcWidth = src.size() / srcHeight;
+	
 	vector<GLfloat> weight;
 	if( gradient != NULL)
 	{		
@@ -2626,11 +2792,11 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> *dst, IplImage *gr
 	int ext = (aperture-1) / 2;
 	/*if( gradient != NULL)
 	{
-		gradientWeight(weight, ext);
+		gradientWeight(weight, ext, srcHeight);
 	}*/
 	
-	int srcHeight = sqrt( (float)src.size() );
-	for(int i=0; i< srcHeight; i++)
+	
+	for(int i=0; i< srcWidth; i++)
 	{
 		//#pragma omp parallel for private(hist)
 		for(int j=0; j< srcHeight; j++)
@@ -2794,7 +2960,7 @@ void DrawRelief(const vector<GLfloat> &src, GLdouble *pThreadRelief, GLdouble *p
 		
 		glScalef(0.01*scale, 0.01*scale, 1);
 
-		glTranslated(-2/0.01, -2/0.01, 0.4);
+		glTranslated( -(winHeight/2-boundary), -(winWidth/horizontalSplit/2-boundary), 0.4/*sqrt( (float)(3*winHeight*winHeight - winWidth/horizontalSplit*winWidth/horizontalSplit)/4 )*/ );
 		
 		glScalef(1, 1, outputHeight);
 
@@ -2809,7 +2975,16 @@ void DrawRelief(const vector<GLfloat> &src, GLdouble *pThreadRelief, GLdouble *p
 					reliefProfile.clear();
 					for(int i=0; i < width - 1; i++)
 					{			
-						reliefProfile.push_back( (src[199 + i*height] + src[200 + i*height]) / 2 );
+						
+						/*if( winHeight%2 == 0 )
+						{
+							reliefProfile.push_back( (src[(height-1)/2 + i*height] + src[(height+1)/2 + i*height]) / 2 );
+						}
+						else
+						{
+							reliefProfile.push_back( src[height/2 + i*height] );
+						}*/
+						reliefProfile.push_back( ( src[ floor( (height-1)/2.0 ) + i*height ] + src[ ceil( (height-1)/2.0 ) + i*height ] ) / 2 );
 						
 						for(int j=0; j < height - 1; j++)
 						{
@@ -3130,8 +3305,8 @@ void BilateralDetailBase(void)
 			//	recordMax(laplace[i]);
 			//}
 			
-			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
-			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
+			int height = (winHeight - boundary*2) / pow(2.0, pyrLevel - 1);
+			int width = heightPyr[pyrLevel - 1].size() / height;
 			//thresholding
 			/*for(int i=0; i < width; i++)
 			{
@@ -3161,7 +3336,7 @@ void BilateralDetailBase(void)
 
 			/*****	gaussian layer	*****/
 			bgImg = cvCreateImage( cvGetSize(imgPyr[0]), IPL_DEPTH_32F, 1);
-			Relief2Image( bgMask, bgImg );
+			Relief2Image( bgMask, bgImg, winHeight - boundary*2);
 			
 			for(int i=0; i < pyrLevel-1; i++)
 			{
@@ -3171,8 +3346,8 @@ void BilateralDetailBase(void)
 			}
 			cvCopy(tempImg, bgImg);
 
-			tempImg = cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
-			Relief2Image(	heightPyr.at( pyrLevel - 1), tempImg);
+			tempImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
+			Relief2Image(	heightPyr.at( pyrLevel - 1), tempImg, (winHeight - boundary*2)/pow(2.0, pyrLevel - 1) );
 
 			//bgFilter( tempImg, bgImg);
 			cvPyrUp( tempImg, imgGa );
@@ -3195,19 +3370,21 @@ void BilateralDetailBase(void)
 			//}
 			/*****	bilateral filter	*****/
 
-			tempImg = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);	
+			tempImg = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);	
 			
+			height = imgPyr[pyrLevel - 2]->height;
 			width = imgPyr[pyrLevel - 2]->width;
 			for(int i=pyrLevel - 2; i > 0; i--)
 			{
 				width *= 2;
+				height *= 2;
 				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
-				img2 = cvCreateImage( cvSize( width,  width ), IPL_DEPTH_32F, 1);
+				img2 = cvCreateImage( cvSize( width,  height ), IPL_DEPTH_32F, 1);
 				cvSetZero(img2);
 
 				cvPyrUp(imgGa, img2);	//upsample the smallest laplace
 				
-				imgGa = cvCreateImage( cvSize( width,  width ), IPL_DEPTH_32F, 1);
+				imgGa = cvCreateImage( cvSize( width,  height ), IPL_DEPTH_32F, 1);
 				cvCopy(img2, imgGa);
 			}
 			
@@ -3215,22 +3392,23 @@ void BilateralDetailBase(void)
 			/*****	gaussian  layer	*****/
 
 			/*****	laplacian layer	*****/
-			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa);
+			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa, (winHeight - boundary*2)/pow(2.0, pyrLevel - 2) );
 			
 			//cvAdd(imgGa, imgLa, img);
 			cvCopy(imgLa, img);
 			for(int i=pyrLevel - 2; i > 0; i--)
 			{
 				width = imgPyr[i]->width;
+				height = imgPyr[i]->height;
 				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
-				img2 = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				img2 = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 				cvSetZero(img2);
-				imgLa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				imgLa = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 
 				cvPyrUp(img, img2);	//upsample the smallest laplace
-				Relief2Image(laplaceList.at(i-1), imgLa);
+				Relief2Image(laplaceList.at(i-1), imgLa, (winHeight - boundary*2)/pow(2.0, i-1));
 
-				img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				img = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 				cvAdd(img2, imgLa, img);
 				//cvCopy(img2, img);
 				/*Image2Relief(img2, compressedH);
@@ -3246,13 +3424,13 @@ void BilateralDetailBase(void)
 			/*****	laplacian layer	*****/
 
 			Image2Relief(imgGa, compressedH);
-			bgFilter(compressedH, bgMask);
+			bgFilter(compressedH, bgMask, winHeight - boundary*2);
 
 			/*for(int i=0; i < compressedH.size(); i++)
 			{
 				outline.push_back(0);
 			}*/
-			extractOutline(compressedH, outline);
+			extractOutline(compressedH, outline, winHeight - boundary*2);
 			
 			vector<GLfloat>::iterator first = outline.begin();
 			vector<GLfloat>::iterator last = outline.end();
@@ -3286,7 +3464,7 @@ void BilateralDetailBase(void)
 			//	}
 			//}
 			/*****	bilateral filter	*****/
-			Relief2Image(heightPyr[0], imgGa);
+			Relief2Image(heightPyr[0], imgGa, winHeight - boundary*2);
 			/*****	linear compression	*****/
 			/*double minVal,maxVal;
 			
@@ -3362,7 +3540,7 @@ void BilateralDetailBase(void)
 			cvAdd(img, imgGa, img);
 			
 			Image2Relief(img, compressedH);
-			bgFilter( compressedH, bgMask );
+			bgFilter( compressedH, bgMask, winHeight - boundary*2 );
 			
 			first = compressedH.begin();
 			last = compressedH.end();
@@ -3371,7 +3549,7 @@ void BilateralDetailBase(void)
 			
 			vector<GLfloat> gaussianH;
 			Image2Relief(imgGa, gaussianH);
-			bgFilter( gaussianH, bgMask);
+			bgFilter( gaussianH, bgMask, winHeight - boundary*2);
 			recordMax( gaussianH );
 			for(int i=0;i< compressedH.size(); i++)
 			{
@@ -3428,8 +3606,10 @@ void linearCompressedBase(void)
 				recordMax(laplace[i]);
 			}*/
 			
-			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
-			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
+			/*int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
+			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );*/
+			int height = (winHeight - boundary*2) / pow(2.0, pyrLevel - 1);
+			int width = heightPyr[pyrLevel - 1].size() / height;
 
 			//collapse the pyramid
 			vector<GLfloat> outline;
@@ -3438,16 +3618,16 @@ void linearCompressedBase(void)
 				compressedH->push_back( height[pyrLevel - 1].at(i) );
 			}*/
 			
-			imgGa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
-			imgLa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
-			img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+			imgGa = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
+			imgLa = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
+			img = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 
 			
 			//cvGetImage(imgPyr[pyrLevel - 1], tempImg);
 
 			/*****	gaussian layer	*****/
 			bgImg = cvCreateImage( cvGetSize(imgPyr[0]), IPL_DEPTH_32F, 1);
-			Relief2Image( bgMask, bgImg );
+			Relief2Image( bgMask, bgImg, winHeight - boundary*2);
 			
 			for(int i=0; i < pyrLevel-1; i++)
 			{
@@ -3457,25 +3637,25 @@ void linearCompressedBase(void)
 			}
 			cvCopy(tempImg, bgImg);
 
-			tempImg = cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
-			Relief2Image(	heightPyr.at( pyrLevel - 1), tempImg);
+			tempImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
+			Relief2Image(	heightPyr.at( pyrLevel - 1), tempImg, (winHeight - boundary*2)/pow(2.0, pyrLevel - 1));
 
 			//bgFilter( tempImg, bgImg);
 			cvPyrUp( tempImg, imgGa );
 
-			tempImg = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);	
+			tempImg = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);	
 			
 			width = imgPyr[pyrLevel - 2]->width;
 			for(int i=pyrLevel - 2; i > 0; i--)
 			{
 				width *= 2;
-				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
-				img2 = cvCreateImage( cvSize( width,  width ), IPL_DEPTH_32F, 1);
+				//img = cvCreateImage( cvSize( width,  height ), IPL_DEPTH_32F, 1);
+				img2 = cvCreateImage( cvSize( width,  height ), IPL_DEPTH_32F, 1);
 				cvSetZero(img2);
 
 				cvPyrUp(imgGa, img2);	//upsample the smallest laplace
 				
-				imgGa = cvCreateImage( cvSize( width,  width ), IPL_DEPTH_32F, 1);
+				imgGa = cvCreateImage( cvSize( width,  height ), IPL_DEPTH_32F, 1);
 				cvCopy(img2, imgGa);
 			}
 			
@@ -3483,22 +3663,23 @@ void linearCompressedBase(void)
 			/*****	gaussian  layer	*****/
 
 			/*****	laplacian layer	*****/
-			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa);
+			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa, (winHeight - boundary*2)/pow(2.0, pyrLevel - 2));
 			
 			//cvAdd(imgGa, imgLa, img);
 			cvCopy(imgLa, img);
 			for(int i=pyrLevel - 2; i > 0; i--)
 			{
 				width = imgPyr[i]->width;
+				height = imgPyr[i]->height;
 				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
-				img2 = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				img2 = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 				cvSetZero(img2);
-				imgLa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				imgLa = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 
 				cvPyrUp(img, img2);	//upsample the smallest laplace
-				Relief2Image(laplaceList.at(i-1), imgLa);
+				Relief2Image(laplaceList.at(i-1), imgLa, (winHeight - boundary*2)/pow(2.0, i-1));
 
-				img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				img = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 				cvAdd(img2, imgLa, img);
 				//cvCopy(img2, img);
 				/*Image2Relief(img2, compressedH);
@@ -3514,13 +3695,13 @@ void linearCompressedBase(void)
 			/*****	laplacian layer	*****/
 
 			Image2Relief(imgGa, compressedH);
-			bgFilter( compressedH, bgMask );
+			bgFilter( compressedH, bgMask, winHeight - boundary*2 );
 
 			for(int i=0; i < compressedH.size(); i++)
 			{
 				outline.push_back(0);
 			}
-			extractOutline(compressedH, outline);
+			extractOutline(compressedH, outline, winHeight - boundary*2);
 			
 			vector<GLfloat>::iterator first = outline.begin();
 			vector<GLfloat>::iterator last = outline.end();
@@ -3533,7 +3714,7 @@ void linearCompressedBase(void)
 			GLfloat outline_med = outline[ outline.size()/2 ];
 
 			double minVal,maxVal;
-			Relief2Image(heightPyr[0], imgGa);
+			Relief2Image(heightPyr[0], imgGa, winHeight - boundary*2);
 			cvMinMaxLoc(imgGa, &minVal, &maxVal);
 			double val;
 			for(int i=0; i < width; i++)
@@ -3550,7 +3731,7 @@ void linearCompressedBase(void)
 			cvAdd(img, imgGa, img);
 			
 			Image2Relief(img, compressedH);
-			bgFilter( compressedH, bgMask );
+			bgFilter( compressedH, bgMask, winHeight - boundary*2 );
 			
 			first = compressedH.begin();
 			last = compressedH.end();
@@ -3559,7 +3740,7 @@ void linearCompressedBase(void)
 			
 			vector<GLfloat> gaussianH;
 			Image2Relief(imgGa, gaussianH);
-			bgFilter( gaussianH, bgMask);
+			bgFilter( gaussianH, bgMask, winHeight - boundary*2 );
 			recordMax( gaussianH );
 			for(int i=0; i< compressedH.size(); i++)
 			{
@@ -3609,7 +3790,7 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 			bgFilter(gradient, outlineImg);
 
 			IplImage *bgImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
-			Relief2Image( bgMask, bgImg);
+			Relief2Image( bgMask, bgImg, winHeight - boundary*2);
 			bgFilter(gradient, bgImg);
 			
 			int size = src.size();
@@ -3639,36 +3820,40 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 				cvCopy(dstImg, srcImg);
 			}
 			Image2Relief(srcImg, referenceHeight);*/
+
+			int height = (winHeight - boundary*2) / pow(2.0, pyrLevel - 1);
+			int width = heightPyr[pyrLevel - 1].size() / height;
+
 			for(int k=1; k <= n; k++)
 			{
-				equalizeHist(src, AHEHeight, pow(2.0, level), gradient, pow(2.0, k-1) * 8*2 + 1);
+				equalizeHist(src, AHEHeight, pow(2.0, level), gradient, pow(2.0, k-1) * 8*2 + 1, height);
 				vectorAdd(compressedH, AHEHeight, compressedH);
 				AHEHeight.clear();
 			}
 			vectorScale(compressedH, compressedH, 1.0/n);
 			
 			IplImage *img, *img2, *imgGa;
-			int width = sqrt( (float) heightPyr[pyrLevel - 1].size() );
-			int height = sqrt( (float) heightPyr[pyrLevel - 1].size() );
+			
 			img = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 			/*****	laplacian layer	*****/			
 			IplImage *imgLa = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);	
-			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa);
+			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa, (winHeight - boundary*2)/pow(2.0, pyrLevel - 2));
 			
 			//cvAdd(imgGa, imgLa, img);
 			cvCopy(imgLa, img);
 			for(int i=pyrLevel - 2; i > 0; i--)
 			{
 				width = imgPyr[i]->width;
+				height = imgPyr[i]->width;
 				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
-				img2 = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				img2 = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 				cvSetZero(img2);
-				imgLa = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				imgLa = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 
 				cvPyrUp(img, img2);	//upsample the smallest laplace
-				Relief2Image(laplaceList.at(i-1), imgLa);
+				Relief2Image(laplaceList.at(i-1), imgLa, (winHeight - boundary*2)/pow(2.0, i-1));
 
-				img = cvCreateImage( cvSize( width*2,  width*2), IPL_DEPTH_32F, 1);
+				img = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
 				cvAdd(img2, imgLa, img);
 				//cvCopy(img2, img);
 				/*Image2Relief(img2, compressedH);
@@ -3683,7 +3868,7 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 			/*****	laplacian layer	*****/
 
 			imgGa = cvCreateImage( cvGetSize( img ), IPL_DEPTH_32F, 1);
-			Relief2Image(compressedH, imgGa);
+			Relief2Image(compressedH, imgGa, winHeight - boundary*2);
 
 			double baseMin, baseMax, detailMin, detailMax;
 			cvMinMaxLoc(imgGa, &baseMin, &baseMax);
@@ -3694,7 +3879,7 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 			cvAdd(img, imgGa, img);
 			Image2Relief(img, compressedH);
 
-			bgFilter(compressedH, bgMask);
+			bgFilter(compressedH, bgMask, winHeight - boundary*2);
 
 			for(int i=0; i < compressedH.size(); i++)
 			{
@@ -3908,18 +4093,22 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 
 			if(level)
 			{
+				//int side = sqrt( (float)size );
+				int height = (winHeight - boundary*2)/pow(2.0, level);
+				int width = size/height;
+				
 				for(int k=1; k <= n; k++)
 				{
-					equalizeHist(src, AHEHeight, weight, pow(2.0, k-1) * 8*2 + 1);
+					equalizeHist(src, AHEHeight, weight, pow(2.0, k-1) * 8*2 + 1, height);
 					vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 					AHEHeight.clear();
 					AHEHeight.resize(size, 0);
 				}
 				vectorScale(referenceHeight, referenceHeight, 1.0/n);
 				
-				int side = sqrt( (float)size );
-				IplImage *srcImg = cvCreateImage( cvSize(side, side), IPL_DEPTH_32F, 1);
-				Relief2Image(referenceHeight, srcImg);
+				
+				IplImage *srcImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
+				Relief2Image(referenceHeight, srcImg, height);
 
 				for(int i=1;i <=level; i++)
 				{
@@ -3929,13 +4118,48 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 					cvCopy(dstImg, srcImg);
 				}
 
+				vector<GLfloat> knn, carve;
+				
 				Image2Relief(srcImg, referenceHeight);
+				Image2Relief(sample, knn);
+			
+				carve.resize(referenceHeight.size(), 0);
+				knninterpolation(knn, knn, carve);
+
+				height = winHeight - boundary*2;
+				width = heightPyr[0].size() / height;
+				GLfloat carveMax = 0;
+				for(int i=0; i< width; i++)
+				{
+					for(int j=0; j< height; j++)
+					{
+						//if( !bgMask[ i*height + j ] )
+						//{
+							if( carve[ i*height + j ] > carveMax ) carveMax = carve[ i*height + j ];
+						//}
+					}
+				}
+
+				if(carveMax)
+				{
+					for(int i=0; i< width; i++)
+					{
+						for(int j=0; j< height; j++)
+						{
+							if( !bgMask[ i*height + j ] )
+							{
+								referenceHeight[ i*height + j ] -= carve[ i*height + j ] *0.25 / carveMax;
+							}
+						}
+					}
+				}
+
 			}
 			else
 			{
 					for(int k=1; k <= n; k++)
 					{
-						equalizeHist(src, AHEHeight, sample /*, pow(2.0, pyrLevel-1)*/, weight, pow(2.0, k-1) * 16*2 + 1);
+						equalizeHist(src, AHEHeight, sample /*, pow(2.0, pyrLevel-1)*/, weight, pow(2.0, k-1) * 16*2 + 1, winHeight - boundary*2);
 						vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 						AHEHeight.clear();
 						AHEHeight.resize(size, 0);
@@ -3943,7 +4167,7 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 					vectorScale(referenceHeight, referenceHeight, 1.0/n);
 			}
 
-			bgFilter(referenceHeight, bgMask);
+			bgFilter(referenceHeight, bgMask, winHeight - boundary*2);
 
 			for(int i=0; i < referenceHeight.size(); i++)
 			{
@@ -4077,10 +4301,10 @@ void next(int l, int  i, int j, vector<GLfloat> x, vector<GLfloat> y, vector<vec
 
 void intergrate(vector<GLfloat> x, vector<GLfloat> y, vector<GLfloat> &dst)
 {
-	extractOutline( heightPyr[0], outlineMask, 1);
-
-	int width = sqrt( (float) x.size() );
-	int height = sqrt( (float) x.size() );
+	int height = winHeight - boundary*2;
+	int width = x.size() / height;
+	
+	extractOutline( heightPyr[0], outlineMask, height, 1);
 
 	dst.clear();
 	vector<vector <GLfloat>> sum;
@@ -4130,8 +4354,10 @@ void intergrate(vector<GLfloat> x, vector<GLfloat> y, vector<GLfloat> &dst)
 
 void heightInterpolation(int l, int i, int j, int aperture, vector<GLfloat> &dst)
 {
-	int width = sqrt( (float) heightPyr[0].size() );
-	int height = sqrt( (float) heightPyr[0].size() );
+	/*int width = sqrt( (float) heightPyr[0].size() );
+	int height = sqrt( (float) .size() );*/
+	int height = winHeight - boundary*2;
+	int width = heightPyr[0].size() / height;
 
 	if( dst[ i*height + j ] == 0 && bgMask[ i*height + j ] == 0 )
 	{
@@ -4171,8 +4397,10 @@ void heightInterpolation(int l, int i, int j, int aperture, vector<GLfloat> &dst
 
 void heightInterpolation(int l, int i, int j, int aperture, vector<GLfloat> *dst)
 {
-	int width = sqrt( (float) heightPyr[0].size() );
-	int height = sqrt( (float) heightPyr[0].size() );
+	/*int width = sqrt( (float) heightPyr[0].size() );
+	int height = sqrt( (float) heightPyr[0].size() );*/
+	int height = winHeight - boundary*2;
+	int width = heightPyr[0].size() / height;
 
 	if( dst->at( i*height + j ) == 0 && bgMask[ i*height + j ] == 0 )
 	{
@@ -4212,10 +4440,12 @@ void heightInterpolation(int l, int i, int j, int aperture, vector<GLfloat> *dst
 
 void intergrate(vector<GLfloat> &dst)
 {
-	extractOutline( heightPyr[0], outlineMask, 1);
-
-	int width = sqrt( (float) heightPyr[0].size() );
-	int height = sqrt( (float) heightPyr[0].size() );
+	/*int width = sqrt( (float) heightPyr[0].size() );
+	int height = sqrt( (float) heightPyr[0].size() );*/
+	int height = winHeight - boundary*2;
+	int width = heightPyr[0].size() / height;
+	
+	extractOutline( heightPyr[0], outlineMask, height, 1);
 
 	dst.clear();
 	for(int i=0; i< width*height; i++)
@@ -4252,10 +4482,12 @@ void intergrate(vector<GLfloat> &dst)
 
 void intergrate(vector<GLfloat> *dst)
 {
-	extractOutline( heightPyr[0], outlineMask, 1);
-
-	int width = sqrt( (float) heightPyr[0].size() );
-	int height = sqrt( (float) heightPyr[0].size() );
+	/*int width = sqrt( (float) heightPyr[0].size() );
+	int height = sqrt( (float) heightPyr[0].size() );*/
+	int height = winHeight - boundary*2;
+	int width = heightPyr[0].size() / height;
+	
+	extractOutline( heightPyr[0], outlineMask, height, 1);
 
 	dst->clear();
 	for(int i=0; i< width*height; i++)
@@ -4316,78 +4548,78 @@ void setGaussianKernel( vector<double> &a, int aperture)
     }
 }
 
-void gaussianFilter(vector<GLfloat> src, vector<GLfloat> &dst)
-{
-	int width = sqrt( (float) src.size() );
-	int  height = sqrt( (float) src.size() );
-
-	dst.clear();
-	for(int i=0; i < width; i++)
-	{
-		for(int j=0; j < height; j++)
-		{
-			dst.push_back( 0 );
-		}
-	}
-
-	vector<double> kernel;
-	vector< vector<double> > kernelList;
-	vector<GLfloat>::iterator first = outlineMask.begin();
-	vector<GLfloat>::iterator last = outlineMask.end();
-	GLint max = *max_element ( first, last );
-	for(int i=2; i <= max; i++)
-	{
-		int aperture = i*2 - 1;
-		for(int j=0; j<aperture*aperture; j++)
-		{
-			kernel.push_back( 0 );
-		}
-		setGaussianKernel( kernel,  aperture );
-		kernelList.push_back( kernel );
-		kernel.clear();
-	}
-	
-
-	for(int i=0; i < width; i++)
-	{
-		for(int j=0; j < height; j++)
-		{
-			if( outlineMask[ i*height + j ]  >= 2 )
-			{
-				int ext = outlineMask[ i*height + j ] - 1;
-				//int ext = (aperture-1) / 2;
-				if(i >= ext  && j >= ext && i+ext < width && j+ext < height)
-				{
-					for(int p=-ext; p <=ext; p++)
-					{
-						for(int q=-ext; q <=ext; q++)
-						{
-							dst[ i*height + j ] += src.at( (i+p)*height + j+q ) * kernelList[ outlineMask[ i*height + j ] - 2 ][ (p+ext)*(ext*2+1) + q+ext ];
-						}
-					}
-				}
-
-				else	//boundary issues
-				{
-					int extU = -ext,extD = ext,extL = -ext,extR = ext;
-					if( ext > j)		extU = -j;
-					if( ext > i)		extL = -i;
-					if( j+ext >= height)		extD = height - 1 - j;
-					if( i+ext >= width)		extR =  width - 1 - i;
-					
-					for(int p=extL; p <= extR; p++)
-					{
-						for(int q=extU; q <= extD; q++)
-						{
-							dst[ i*height + j ] += src.at( (i+p)*height + j+q ) * kernelList[ outlineMask[ i*height + j ] - 2 ][ (p+ext)*(ext*2+1) + q+ext ];
-						}
-					}
-				}
-
-			}
-		}
-	}
-}
+//void gaussianFilter(vector<GLfloat> src, vector<GLfloat> &dst)
+//{
+//	int width = sqrt( (float) src.size() );
+//	int  height = sqrt( (float) src.size() );
+//
+//	dst.clear();
+//	for(int i=0; i < width; i++)
+//	{
+//		for(int j=0; j < height; j++)
+//		{
+//			dst.push_back( 0 );
+//		}
+//	}
+//
+//	vector<double> kernel;
+//	vector< vector<double> > kernelList;
+//	vector<GLfloat>::iterator first = outlineMask.begin();
+//	vector<GLfloat>::iterator last = outlineMask.end();
+//	GLint max = *max_element ( first, last );
+//	for(int i=2; i <= max; i++)
+//	{
+//		int aperture = i*2 - 1;
+//		for(int j=0; j<aperture*aperture; j++)
+//		{
+//			kernel.push_back( 0 );
+//		}
+//		setGaussianKernel( kernel,  aperture );
+//		kernelList.push_back( kernel );
+//		kernel.clear();
+//	}
+//	
+//
+//	for(int i=0; i < width; i++)
+//	{
+//		for(int j=0; j < height; j++)
+//		{
+//			if( outlineMask[ i*height + j ]  >= 2 )
+//			{
+//				int ext = outlineMask[ i*height + j ] - 1;
+//				//int ext = (aperture-1) / 2;
+//				if(i >= ext  && j >= ext && i+ext < width && j+ext < height)
+//				{
+//					for(int p=-ext; p <=ext; p++)
+//					{
+//						for(int q=-ext; q <=ext; q++)
+//						{
+//							dst[ i*height + j ] += src.at( (i+p)*height + j+q ) * kernelList[ outlineMask[ i*height + j ] - 2 ][ (p+ext)*(ext*2+1) + q+ext ];
+//						}
+//					}
+//				}
+//
+//				else	//boundary issues
+//				{
+//					int extU = -ext,extD = ext,extL = -ext,extR = ext;
+//					if( ext > j)		extU = -j;
+//					if( ext > i)		extL = -i;
+//					if( j+ext >= height)		extD = height - 1 - j;
+//					if( i+ext >= width)		extR =  width - 1 - i;
+//					
+//					for(int p=extL; p <= extR; p++)
+//					{
+//						for(int q=extU; q <= extD; q++)
+//						{
+//							dst[ i*height + j ] += src.at( (i+p)*height + j+q ) * kernelList[ outlineMask[ i*height + j ] - 2 ][ (p+ext)*(ext*2+1) + q+ext ];
+//						}
+//					}
+//				}
+//
+//			}
+//		}
+//	}
+//}
 
 void gradientCorrection(IplImage *gradientX, IplImage *gradientY)
 {	
@@ -4396,7 +4628,7 @@ void gradientCorrection(IplImage *gradientX, IplImage *gradientY)
 		{*/
 
 			/*int width = sqrt( (float) heightPyr[0].size() );
-			IplImage *img= cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
+			IplImage *img= cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
 			Relief2Image(heightPyr[0], img);
 
 			IplImage *Image =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_8U, 1);
@@ -4446,7 +4678,7 @@ void gradientCorrection(IplImage *gradientX, IplImage *gradientY)
 			 
 			Image2Relief(height, referenceHeight);*/
 
-			//bgFilter(referenceHeight, bgMask);
+			//bgFilter(referenceHeight, bgMask, winHeight - boundary*2);
 			//gaussianFilter(referenceHeight, referenceHeight);
 
 			vector<GLfloat>::iterator first = referenceHeight.begin();
@@ -4680,15 +4912,12 @@ void stopMotion0(int x, int y)
 
 CVector3 GetOGLPos(GLfloat pos[3])
 {
-    GLint viewport[4];
+  /*  GLint viewport[4];
     GLdouble modelview[16];
-    GLdouble projection[16];
+    GLdouble projection[16];*/
     GLdouble winX, winY, winZ;
     GLdouble posX, posY, posZ;
  
-    glGetDoublev( GL_MODELVIEW_MATRIX, modelview );
-    glGetDoublev( GL_PROJECTION_MATRIX, projection );
-    glGetIntegerv( GL_VIEWPORT, viewport );
  
     winX = (double)pos[0];
     winY = (double)pos[1];
@@ -4984,14 +5213,14 @@ bool GetClipDistance()
 		/*glGetFloatv(GL_MODELVIEW_MATRIX, m);*/
 		glFlush();
 
-		float *depthmap = new float[winWidth0*winHeight0];
-		glReadPixels(0, 0, winWidth0, winHeight0, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
+		float *depthmap = new float[winWidth0/2*winHeight0];
+		glReadPixels(winWidth0/2 , 0, winWidth0/2, winHeight0, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
 
-		for(int i=boundary; i<winWidth0 - boundary; i++)
+		for(int i=boundary; i<winWidth0/2 - boundary; i++)
 		{
 			for(int j=boundary; j<winHeight0 - boundary; j++)
 			{
-				GLfloat depth = depthmap[j*winWidth0+i] ;
+				GLfloat depth = depthmap[j*winWidth0/2+i] ;
 				//glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
 
 				if( maxDepthPoint[2] < depth && depth !=1)
@@ -5000,13 +5229,13 @@ bool GetClipDistance()
 					max2DepthPoint[1] = maxDepthPoint[1];
 					max2DepthPoint[2] = maxDepthPoint[2];
 					
-					maxDepthPoint[0] = i;
+					maxDepthPoint[0] = i + winWidth0/2;
 					maxDepthPoint[1] = j;
 					maxDepthPoint[2] = depth;
 				}
 				if( minDepthPoint[2] > depth)
 				{	
-					minDepthPoint[0] = i;
+					minDepthPoint[0] = i + winWidth0/2;
 					minDepthPoint[1] = j;
 					minDepthPoint[2] = depth;
 				}
@@ -5023,8 +5252,8 @@ bool GetClipDistance()
 			farPoint.n[0], farPoint.n[1], farPoint.n[2]);
 		CVector3 temp =  farPoint - nearPoint;
 
-		perspective[2] = abs(lookat[2]-nearPoint.n[2]);//-0.1*temp.Magnitude();
-		perspective[3] = abs(lookat[2]-farPoint.n[2]);//+0.1*temp.Magnitude();;
+		perspective[2] = abs(lookat[2] - nearPoint.n[2]);//-0.1*temp.Magnitude();
+		perspective[3] = abs(lookat[2] - farPoint.n[2]);//+0.1*temp.Magnitude();;
 		printf("Near=%f, Far=%f\n\n", perspective[2], perspective[3]);
 		
 		dynamicRange = (nearPoint.n[2] - farPoint.n[2]) / (far2Point.n[2] - farPoint.n[2]);
@@ -5035,6 +5264,70 @@ bool GetClipDistance()
 
 	return true;
 }
+
+//bool GetClipDistance() 
+//{
+//	float maxDepthPoint[3], minDepthPoint[3], max2DepthPoint[3];
+//	maxDepthPoint[0] = 0, maxDepthPoint[1] = 0, maxDepthPoint[2] = 0;
+//	minDepthPoint[2] = 1;
+//
+//	if( true )
+//	{
+//		
+//		glFlush();
+//		//glGetFloatv(GL_MODELVIEW_MATRIX, m);
+//
+//		float *depthmap = new float[winWidth0*winHeight0];
+//		glReadPixels(0, 0, winWidth0, winHeight0, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
+//
+//		for(int i=boundary; i<winWidth0 - boundary; i++)
+//		{
+//			for(int j=boundary; j<winHeight0 - boundary; j++)
+//			{
+//				GLfloat depth = depthmap[j*winWidth0+i] ;
+//				//glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+//
+//				if( maxDepthPoint[2] < depth && depth !=1)
+//				{
+//					max2DepthPoint[0] = maxDepthPoint[0];
+//					max2DepthPoint[1] = maxDepthPoint[1];
+//					max2DepthPoint[2] = maxDepthPoint[2];
+//					
+//					maxDepthPoint[0] = i;
+//					maxDepthPoint[1] = j;
+//					maxDepthPoint[2] = depth;
+//				}
+//				if( minDepthPoint[2] > depth)
+//				{	
+//					minDepthPoint[0] = i;
+//					minDepthPoint[1] = j;
+//					minDepthPoint[2] = depth;
+//				}
+//
+//			}
+//		}
+//	
+//
+//		farPoint = GetOGLPos(maxDepthPoint);
+//		far2Point = GetOGLPos(max2DepthPoint);
+//		nearPoint = GetOGLPos(minDepthPoint);
+//		printf("N=%f, F=%f\n", minDepthPoint[2], maxDepthPoint[2]);
+//		printf("near (%f, %f, %f); far (%f, %f, %f)\n", nearPoint.n[0], nearPoint.n[1], nearPoint.n[2],
+//			farPoint.n[0], farPoint.n[1], farPoint.n[2]);
+//		CVector3 temp =  farPoint - nearPoint;
+//
+//		perspective[2] = abs(4-nearPoint.n[2]);//-0.1*temp.Magnitude();
+//		perspective[3] = abs(4-farPoint.n[2]);//+0.1*temp.Magnitude();;
+//		printf("Near=%f, Far=%f\n\n", perspective[2], perspective[3]);
+//		
+//		dynamicRange = (nearPoint.n[2] - farPoint.n[2]) / (far2Point.n[2] - farPoint.n[2]);
+//
+//		//scene = false;
+//		delete [] depthmap;
+//	}
+//
+//	return true;
+//}
 
 //Oringinal Scene
 void display0(void)
@@ -5067,12 +5360,13 @@ void display0(void)
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 	glViewport(winWidth0/2 , 0, winWidth0/2, winHeight0);
+    glGetIntegerv( GL_VIEWPORT, viewport );
 	
 	glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
 
 	gluPerspective(perspective[0], perspective[1], perspective[2], perspective[3]); 
-	glGetDoublev(GL_PROJECTION_MATRIX,projection);
+	glGetDoublev(GL_PROJECTION_MATRIX, projection);
 
     glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
@@ -5202,12 +5496,80 @@ void display0(void)
 	glutSwapBuffers();
 }
 
+//void display0(void)
+//{
+//    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+//
+//    if (trackballMove) {
+//		glPushMatrix();
+//			glLoadMatrixd(TRACKM);
+//			glRotatef(angle, axis[0], axis[1], axis[2]);
+//			glGetDoublev(GL_MODELVIEW_MATRIX, TRACKM);
+//		glPopMatrix();	    
+//	}
+//	
+//	glEnable(GL_LIGHT0);
+//	glDisable(GL_LIGHT1);
+//	glDisable(GL_LIGHT2);
+//	
+//	//view transform
+//	glViewport(0, 0, winWidth0, winHeight0);
+//
+//    glMatrixMode(GL_PROJECTION);
+//    glLoadIdentity();
+//	//glOrtho(-2.0, 2.0, -2.0, 2.0, -3.0, 25.0);
+//	//glFrustum(-2.0, 2.0, -2.0, 2.0, -3.0, 3.0);
+//	//gluPerspective(60, (GLfloat)winWidth0/winHeight0, 0.1, 25); 
+//gluPerspective(60, (GLfloat)winWidth0/winHeight0, perspective[2], perspective[3]); 
+//	
+//	glGetDoublev(GL_PROJECTION_MATRIX, DEBUG_M);
+//
+//
+//    glMatrixMode(GL_MODELVIEW);
+//	glLoadIdentity();
+//
+//	gluLookAt(0, 0, 4, 0, 0, 0, 0, 1, 0);
+//	//glGetDoublev(GL_MODELVIEW_MATRIX, DEBUG_M);
+//
+//	lightPos0[0] = -LIGHTP;
+//	lightPos0[1] = LIGHTP;
+//	lightPos0[2] = LIGHTP;
+//	
+//	glLightfv(GL_LIGHT0, GL_POSITION, lightPos0);
+//
+//	glTranslated(0, 0, 0);
+//	//world coordinate
+//	glColor3f(1, 0, 0);
+//
+//	glPushMatrix();
+//		//multiple trackball matrix
+//		glRotated(angleX,1, 0, 0);
+//		glRotated(angleY,0, 1, 0);
+//		glRotated(angleZ,0, 0, 1);
+//
+//		glMultMatrixd(TRACKM);
+//
+//		glScaled(MODELSCALE, MODELSCALE, MODELSCALE);
+//		glColor3f(1.0, 1.0, 1.0);
+//		//glGetFloatv(GL_MODELVIEW_MATRIX, mat);
+//		glmDraw(MODEL, GLM_SMOOTH);//GLM_FLAT
+//	
+//		if( scene )
+//		{
+//			glGetFloatv(GL_MODELVIEW_MATRIX, m);
+//			scene = false;
+//		}
+//	glPopMatrix();
+//	
+//	glutSwapBuffers();
+//}
+
 void skewness(const IplImage *src, IplImage *dst, int aperture=3)
 {
 	int width =src->width;
 	int height = src->height;
 	IplImage *bgImg = cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
-	Relief2Image(bgMask, bgImg);
+	Relief2Image(bgMask, bgImg, height);
 
 	for(int i=0; i < width; i++)
 	{
@@ -5402,7 +5764,7 @@ void display(void)
 			
 			for(int i=1;i< pyrLevel - 1;i++)
 			{
-				laplacianFilter(heightPyr[i], laplace[i], alpha[i], beta[i]);
+				laplacianFilter( heightPyr[i], laplace[i], alpha[i], beta[i], (winHeight - boundary*2)/pow(2.0, i) );
 				laplaceList.push_back(laplace[i]);
 				recordMax(laplace[i]);
 			}
@@ -5465,7 +5827,7 @@ void display(void)
 			start_time2 = clock();
 
 			int width = sqrt( (float) heightPyr[0].size() );
-			/*IplImage *img= cvCreateImage( cvSize(width, width), IPL_DEPTH_32F, 1);
+			/*IplImage *img= cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
 			Relief2Image(heightPyr[0], img);*/
 
 			IplImage *Image =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
@@ -5558,9 +5920,12 @@ void display(void)
 			}
 			else if( reference == 3 )	//F11
 			{
-				int side = sqrt( (float)heightPyr[2].size() );
-				IplImage *img = cvCreateImage( cvSize(side, side), IPL_DEPTH_32F, 1);
-				Relief2Image(heightPyr[2], img);
+				int level = 2;
+				//int side = sqrt( (float)heightPyr[2].size() );
+				int height = (winHeight - boundary*2) / pow(2.0, level);
+				int width = heightPyr[level].size() / height;
+				IplImage *img = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
+				Relief2Image(heightPyr[2], img, height);
 				Image =  cvCreateImage( cvGetSize(img),  IPL_DEPTH_8U, 1);
 				cvConvertScaleAbs(img, Image, 255, 0);
 
@@ -5569,15 +5934,17 @@ void display(void)
 				cvSobel( Image, gradientX, 1, 0);
 				cvSobel( Image, gradientY, 0, 1);
 				
-				reliefHistogram(heightPyr[pyrLevel-1], gradientX, gradientY, 2);
+				reliefHistogram(heightPyr[pyrLevel-1], gradientX, gradientY, level);
 			}
 			else	//F12
 			{		
 				referenceHeight.resize( heightPyr[pyrLevel-1].size() );
 
-				float side = sqrt( (float) heightPyr[pyrLevel-1].size() );
-				IplImage *srcImg = cvCreateImage( cvSize(side, side), IPL_DEPTH_32F, 1);
-				Relief2Image(heightPyr[pyrLevel-1], srcImg);
+				//float side = sqrt( (float) heightPyr[pyrLevel-1].size() );
+				int height = (winHeight - boundary*2) / pow(2.0, pyrLevel-1);
+				int width = heightPyr[pyrLevel-1].size() / height;
+				IplImage *srcImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
+				Relief2Image(heightPyr[pyrLevel-1], srcImg, height);
 				
 				for(int i=pyrLevel-1; i>0; i--)
 				{			
@@ -5608,7 +5975,7 @@ void display(void)
 			{
 				IplImage *heightMap = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
 				IplImage *heightImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
-				Relief2Image(referenceHeight, heightImg);
+				Relief2Image(referenceHeight, heightImg, winHeight - boundary*2);
 				cvConvertScaleAbs(heightImg, heightMap, 255, 0);
 
 				cvNamedWindow("Height Map", 1);
@@ -5678,17 +6045,33 @@ void mouseButton(int button, int state, int x, int y)
 
 void myReshape0(int w, int h)
 {
-    winWidth0 = w;
     winHeight0 = h;
-	perspective[1] = w/2.0/h;
+	winWidth0 =  h*2;
+    
+	perspective[1] = winWidth0/2.0/winHeight0;
 
-	swInitZbuffer(w/2, h);
+	glutSetWindow(Window0);
+	glutReshapeWindow(winHeight0*2, winHeight0);
+	glutSetWindow(Window);
+	glutReshapeWindow(winHeight0*horizontalSplit, winHeight0);
+
+
+	mesh1=false;
+	mesh2=false;
+
+	swInitZbuffer(winWidth0/2, winHeight0);
 }
 
 void myReshape(int w, int h)
 {
     winWidth = w;
     winHeight = h;
+
+	vertCount = ( winWidth/2 - boundary*2 ) * ( winHeight - boundary*2 );
+	pThreadRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3);
+	pThreadNormal = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3 *2);
+	pThreadEqualizeRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3);
+	pThreadEqualizeNormal = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3 *2);
 
 	swInitZbuffer(w/2, h);
 }
@@ -5743,6 +6126,64 @@ void initTM()
 	TRACKM[14] = 0;
 	TRACKM[15] = 1;
 }
+
+void SpecialKeys(int key, int x, int y)
+{
+	switch(key)
+	{
+		case GLUT_KEY_LEFT:
+			angleY--;
+			setZeroAxis();
+			break;
+		case GLUT_KEY_UP:
+			angleX--;
+			setZeroAxis();
+			break;
+		case GLUT_KEY_PAGE_UP:
+			angleZ--;
+			setZeroAxis();
+			break;
+		case GLUT_KEY_RIGHT:
+			angleY++;
+			break;
+		case GLUT_KEY_DOWN:
+			angleX++;
+			break;
+		case GLUT_KEY_PAGE_DOWN:
+			angleZ++;
+			setZeroAxis();
+			break;
+		case GLUT_KEY_INSERT:
+			reliefAngleZ--;
+			setZeroAxis();
+			break;
+		case GLUT_KEY_F1:
+			method = 1;
+			break;
+		case GLUT_KEY_F2:
+			method = 2;
+			break;
+		case GLUT_KEY_F3:
+			method = 3;
+			break;
+		case GLUT_KEY_F4:
+			method = 0;
+			break;
+		case GLUT_KEY_F9:
+			reference = 1;
+			break;
+		case GLUT_KEY_F10:
+			reference = 2;
+			break;
+		case GLUT_KEY_F11:
+			reference = 3;
+			break;
+		case GLUT_KEY_F12:
+			reference = 0;
+			break;
+	}
+}
+
 void myKeys(unsigned char key, int x, int y)
 {
 	switch(key)
@@ -5824,11 +6265,11 @@ void myKeys(unsigned char key, int x, int y)
 			setZeroAxis();
 			break;
 		case '+':  
-			scale += 0.5; 
+			scale += 0.25; 
 			break;
         case '-': 
 			if(scale > 0.1)
-			scale -= 0.5; 
+			scale -= 0.25; 
 			break;
 		/***** relief transformation *****/
 		case 'r':
@@ -5839,6 +6280,10 @@ void myKeys(unsigned char key, int x, int y)
 		case ' ':  
 			scene = true;
 			GetClipDistance();
+
+			glutSetWindow(Window);
+			glutReshapeWindow(winHeight0*horizontalSplit, winHeight0);
+			
 			break;
 		//Enter
 		case 13:  
@@ -5856,75 +6301,18 @@ void myKeys(unsigned char key, int x, int y)
 	glutPostRedisplay();
 }
 
-void SpecialKeys(int key, int x, int y)
-{
-	switch(key)
-	{
-		case GLUT_KEY_LEFT:
-			angleY--;
-			setZeroAxis();
-			break;
-		case GLUT_KEY_UP:
-			angleX--;
-			setZeroAxis();
-			break;
-		case GLUT_KEY_PAGE_UP:
-			angleZ--;
-			setZeroAxis();
-			break;
-		case GLUT_KEY_RIGHT:
-			angleY++;
-			break;
-		case GLUT_KEY_DOWN:
-			angleX++;
-			break;
-		case GLUT_KEY_PAGE_DOWN:
-			angleZ++;
-			setZeroAxis();
-			break;
-		case GLUT_KEY_INSERT:
-			reliefAngleZ--;
-			setZeroAxis();
-			break;
-		case GLUT_KEY_F1:
-			method = 1;
-			break;
-		case GLUT_KEY_F2:
-			method = 2;
-			break;
-		case GLUT_KEY_F3:
-			method = 3;
-			break;
-		case GLUT_KEY_F4:
-			method = 0;
-			break;
-		case GLUT_KEY_F9:
-			reference = 1;
-			break;
-		case GLUT_KEY_F10:
-			reference = 2;
-			break;
-		case GLUT_KEY_F11:
-			reference = 3;
-			break;
-		case GLUT_KEY_F12:
-			reference = 0;
-			break;
-	}
-}
-
 int main(int argc, char **argv)
 {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
-	int windowHeight = 440, horizontalSplit = 3;
+	
 	glutInitWindowSize(windowHeight*2, windowHeight);
 	glutInitWindowPosition(0, 20);
-   int Window0 = glutCreateWindow("Oringinal Scene");
+	Window0 = glutCreateWindow("Oringinal Scene");
 
     glutInitWindowSize(windowHeight*horizontalSplit, windowHeight);
 	glutInitWindowPosition(0, 505);
-    int Window = glutCreateWindow("Digital Bas-Relief from 3D Scenes");
+    Window = glutCreateWindow("Digital Bas-Relief from 3D Scenes");
 
 
 	vertCount = ( windowHeight - boundary*2 ) * ( windowHeight - boundary*2 );
