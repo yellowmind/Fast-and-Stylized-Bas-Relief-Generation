@@ -198,8 +198,44 @@
 				>
 			</File>
 			<File
+				RelativePath=".\PDSampling.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\RangeList.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\RNG.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\ScallopedSector.cpp"
+				>
+			</File>
+			<File
 				RelativePath=".\swgl.cpp"
 				>
+			</File>
+			<File
+				RelativePath=".\WeightedDiscretePDF.cpp"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					ExcludedFromBuild="true"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					ExcludedFromBuild="true"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+					/>
+				</FileConfiguration>
 			</File>
 		</Filter>
 		<Filter
@@ -221,6 +257,30 @@
 			</File>
 			<File
 				RelativePath=".\math3d.h"
+				>
+			</File>
+			<File
+				RelativePath=".\PDSampling.h"
+				>
+			</File>
+			<File
+				RelativePath=".\quasisampler_prototype.h"
+				>
+			</File>
+			<File
+				RelativePath=".\RangeList.h"
+				>
+			</File>
+			<File
+				RelativePath=".\RNG.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ScallopedSector.h"
+				>
+			</File>
+			<File
+				RelativePath=".\WeightedDiscretePDF.h"
 				>
 			</File>
 		</Filter>

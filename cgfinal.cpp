@@ -31,6 +31,7 @@
 
 #include <omp.h>
 #include "CVector3.h"
+#include "PDSampling.h"
 
 using namespace std;
 
@@ -41,6 +42,7 @@ using namespace std;
 #endif
 
 #define HistogramBins  10000
+#define ahe_m 256
 #define SIDE 29
 typedef pair<int, float> P;
 
@@ -90,7 +92,7 @@ GLMmodel *MODEL;
 CVector3 farPoint, far2Point, nearPoint;
 
 GLint scalingFactor = 16;
-GLdouble MODELSCALE = 1.0;
+GLdouble MODELSCALE = 1.75;
 GLdouble LIGHTP = 15;
 
 bool scene=true, relief1=false, relief2=false , mesh1=false, mesh2=false, profile0=false, profile1=false, profile2=false, map2=true, time1=false, time2=false;
@@ -116,7 +118,7 @@ vector<bool> bgMask;
 vector<GLfloat> outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
-IplImage *img0, *sample, *edge,*histImage;
+IplImage *img0, *sample, *edge,*histImage, *ImageL;
 //vector<GLfloat> height;
 vector<GLfloat> compressedH, referenceHeight, sceneProfile, reliefProfile;
 int boundary =20;
@@ -136,7 +138,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 0, reference = 3;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
+int method = 3, reference = 2;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
 int numNonZero;
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
@@ -547,7 +549,8 @@ void Relief2Image(vector<T> src, IplImage *dst, int height=0)
 //	}
 //}
 
-void Image2Relief(IplImage *src, vector<GLfloat> &dst)
+template <class T>
+void Image2Relief(IplImage *src, vector<T> &dst)
 {
 	int width = cvGetSize(src).width;
 	int height = cvGetSize(src).height;
@@ -558,26 +561,26 @@ void Image2Relief(IplImage *src, vector<GLfloat> &dst)
 	{
 		for(int j=0; j < height; j++)
 		{
-			dst.push_back( (float)cvGetReal2D( src, height - 1 - j, i) );
+			dst.push_back( (T)cvGetReal2D( src, height - 1 - j, i) );
 		}
 	}
 }
 
-void Image2Relief(IplImage *src, vector<GLdouble> &dst)
-{
-	int width = cvGetSize(src).width;
-	int height = cvGetSize(src).height;
-
-	dst.clear();
-	
-	for(int i=0; i < width; i++)
-	{
-		for(int j=0; j < height; j++)
-		{
-			dst.push_back( cvGetReal2D( src, height - 1 - j, i) );
-		}
-	}
-}
+//void Image2Relief(IplImage *src, vector<GLdouble> &dst)
+//{
+//	int width = cvGetSize(src).width;
+//	int height = cvGetSize(src).height;
+//
+//	dst.clear();
+//	
+//	for(int i=0; i < width; i++)
+//	{
+//		for(int j=0; j < height; j++)
+//		{
+//			dst.push_back( cvGetReal2D( src, height - 1 - j, i) );
+//		}
+//	}
+//}
 
 void subSample(vector<GLfloat> array1, vector<GLfloat> &array2, int height =0)
 {
@@ -1925,145 +1928,6 @@ void redistribute(float h[], float cumulative, float l)
 	}
 }
 
-void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
-{	
-	if(srcHeight)
-	{}
-	else
-	{
-		srcHeight = sqrt((float)src.size());
-	}
-	int srcWidth = src.size() / srcHeight;
-	
-	vector<GLfloat> weight;
-	if( gradient != NULL)
-	{		
-		if( srcHeight != gradient->height || srcHeight != gradient->width ) return;
-
-		compress(gradient);
-		Image2Relief(gradient, weight);
-	}
-
-	int ext = (aperture-1) / 2;
-	/*if( gradient != NULL)
-	{
-		gradientWeight(weight, ext, srcHeight);
-	}*/
-	
-	/*histImage = cvCreateImage(cvSize(1920,HistogramBins), 8, 1);
-	cvSet( histImage, cvScalarAll(255) );*/
-	
-	for(int i=0; i< srcHeight; i++)
-	{
-		//#pragma omp parallel for private(hist)
-		for(int j=0; j< srcHeight; j++)
-		{
-			
-			float hist[ HistogramBins+1 ];
-			for(int k=0; k<= HistogramBins; k++)
-			{
-				hist[k] =0;
-			}
-			
-			if( src[ i*srcHeight + j ] == 0 )
-			{
-				//dst[ i*srcHeight + j ] = 0;
-			}
-
-			else
-			{
-				int extU = -ext,extD = ext,extL = -ext,extR = ext;
-				
-					if( ext > j)		extL = -j;
-					if( ext > i)		extU = -i;
-					if( j+ext >= srcHeight)		extR = srcHeight - 1 - j;
-					if( i+ext >= srcHeight)		extD = srcHeight - 1 - i;					
-
-				for(int p=extU; p <= extD; p++)
-				{
-						//#pragma omp parallel for
-						for(int q=extL; q <= extR; q++)
-						{
-							if( gradient == NULL)
-							{
-								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += 1;
-							}
-							else
-							{
-								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += weight[ (i+p)*srcHeight + j+q ] * distanceWeight(i, j, i+p, j+q, ext);;
-							}
-						}
-				}
-
-				float cumulative =  0;
-				for(int bin=1; bin < HistogramBins+1; bin++)
-				{
-					cumulative += hist[bin];
-				}
-				
-				/*float test[6] = {0, 50, 100, 200, 150, 100};
-				redistribute(test, 600, 1);*/
-				redistribute(hist, cumulative, scalingFactor*HistogramBins/10000);
-
-				float sum[ HistogramBins+1 ];
-				sum[0] = 0;
-				
-				for(int bin=1; bin < src[ i*srcHeight + j] * HistogramBins + 1; bin++)
-				{
-					
-					if( bin == 1 )
-					{
-						sum[bin] = 0;
-						//sum[bin] =  hist[bin] * 1000 /  number;
-						/*cout << "Sum " << sum[i] << std::endl;
-						sum2[i] =  cvGetReal1D(lHist1->bins, i);*/
-					}
-					//else if( bin == 2)
-					//{
-					//	//sum[bin] = sum[bin-1] + ( hist[2] - hist[1]) /* *HistogramBins*/ / cumulative;
-					//}
-					else
-					{
-						sum[bin] = sum[bin-1] + hist[bin] /* *HistogramBins*/  / cumulative;
-						//sum2[i] = sum2[i-1] + cvGetReal1D(lHist1->bins, i);
-					}
-				}
-				
-				dst[ i*srcHeight + j ] = sum [ (int) (src[ i*srcHeight + j ]  * HistogramBins) ] ;
-			}
-
-			//dst.clear();
-			/*if(src.at( i*srcHeight + j) == 0)
-			{
-				dst.push_back(0);
-			}
-			else
-			{
-				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
-			}*/
-
-		}
-	}
-	
-	
-	
-	/*for(int i=0; i< srcHeight; i++)
-	{
-		for(int j=0; j< srcHeight; j++)
-		{		
-			if(src.at( i*srcHeight + j) == 0)
-			{
-				dst.push_back(0);
-			}
-			else
-			{
-				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *HistogramBins) ]  );
-			}
-		}
-	}*/
-		
-}
-
 const int				k				= 4;			// number of nearest neighbors
 int				dim				= 2;			// dimension
 double			eps				= 0;			// error bound
@@ -2337,7 +2201,6 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 		//}
 
 		//cout << "\tNN:\tIndex\tDistance\n";
-		
 
 		float thetaD = 2*radius[0] + 1;
 
@@ -2374,7 +2237,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 				if(distMin > dists[i]) distMin = dists[i];
 			}
 			
-			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[3], 0)*alpha);
+			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[3]*1.5, 0)*alpha);
 
 			for (int i = 0; i < k; i++)
 			{
@@ -2424,7 +2287,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 				dists[i] = pow( dists[i], 0.5); 
 			}		
 
-			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( dists[k-1]-radius[3], 0)*alpha);
+			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( dists[k-1]-radius[3]*1.5, 0)*alpha);
 		}
 		else	//far from edges
 		{
@@ -2467,8 +2330,207 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 	delete [] dists;
 	delete kdTree;
 	annClose();									// done with ANN
+}
 
+void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &carve, int m=0)
+{
+	string dataS,queryS;
+	int height = winHeight - boundary*2;
+	int width = carve.size() / height;
 
+	char buffer [10];
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			if( !bgMask[ i*height + j ] )
+			{
+				if( cvGetReal2D(sample, height - 1 - j, i) )
+				{
+					dataS += itoa(j, buffer, 10);
+					dataS += " ";
+					dataS += itoa(i, buffer, 10);
+					dataS += "\n";
+				}
+				else /*if( !cvGetReal2D(edge, height - 1 - j, i) )*/
+				{
+					queryS += itoa(j, buffer, 10);
+					queryS += " ";
+					queryS += itoa(i, buffer, 10);
+					queryS += "\n";
+				}
+			}
+		}
+	}
+
+	istringstream dataIs(dataS);
+	dataIn = &dataIs;
+	istringstream queryIs(queryS);
+	queryIn = &queryIs;
+
+	int					nPts;					// actual number of data points
+	ANNpointArray		dataPts;				// data points
+	ANNpoint			queryPt;				// query point
+	ANNidxArray			nnIdx;					// near neighbor indices
+	ANNdistArray		dists;					// near neighbor distances
+	ANNkd_tree*			kdTree;					// search structure
+
+	//getArgs(argc, argv);						// read command-line arguments
+
+	queryPt = annAllocPt(dim);					// allocate query point
+	dataPts = annAllocPts(maxPts, dim);			// allocate data points
+	nnIdx = new ANNidx[k];						// allocate near neigh indices
+	dists = new ANNdist[k];						// allocate near neighbor dists
+
+	nPts = 0;									// read data points
+	
+
+	IplImage *type = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 3);
+	IplImage *r = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	IplImage *g = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	IplImage *b = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	cvCopy(sample, r);
+	cvCopy(sample, g);
+	cvCopy(sample, b);
+
+	//cout << "Data Points:\n";
+	while (nPts < maxPts && readPt(*dataIn, dataPts[nPts])) {
+		//printPt(cout, dataPts[nPts]);
+		nPts++;
+	}
+
+	kdTree = new ANNkd_tree(					// build search structure
+					dataPts,					// the data points
+					nPts,						// number of points
+					dim);						// dimension of space
+
+	while (readPt(*queryIn, queryPt)) {			// read query points
+		//cout << "Query point: ";				// echo query point
+		//printPt(cout, queryPt);
+
+		kdTree->annkSearch(						// search
+				queryPt,						// query point
+				k,								// number of near neighbors
+				nnIdx,							// nearest neighbors (returned)
+				dists,							// distance (returned)
+				eps);							// error bound
+
+		//cout << "\tNN:\tIndex\tDistance\n";
+		//for (int i = 0; i < k; i++) {			// print summary
+		//	dists[i] = sqrt(dists[i]);			// unsquare distance
+		//	cout << "\t" << i << "\t" << dataPts[ nnIdx[i] ][0] << "\t" << dists[i] << "\n";
+		//}
+
+		//cout << "\tNN:\tIndex\tDistance\n";
+		
+
+		float thetaD = 2*radius[0] + 1;
+
+		double distMax=0, distPrimeMax=0;
+		for(int i=0; i<4; i++)
+		{
+			if(dists[i] > distPrimeMax)
+			{
+				distMax = dists[i];
+			}
+			
+			for(int j=i+1; j<4;j++)
+			{
+				double distance = dist(dataPts[ nnIdx[i] ], dataPts[ nnIdx[j] ]);
+				if( distance > distPrimeMax )
+				{
+					distPrimeMax = distance;
+				}
+			}
+		}
+
+		distMax = sqrt(distMax);
+		distPrimeMax = sqrt(distPrimeMax);
+
+		float alpha = 0.01;
+		if( distMax < thetaD )	//on  the edge
+		{
+			cvSetReal2D( r, height - 1 - queryPt[0], queryPt[1], 255);
+
+			/*double distMin=dists[1];
+			for (int i = 0; i < k; i++)
+			{
+				dists[i] = pow( dists[i], 0.5);
+				if(distMin > dists[i]) distMin = dists[i];
+			}
+			
+			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[3]*1.5, 0)*alpha);*/
+
+		}
+		else if( distPrimeMax < thetaD )	//close to an edge
+		{
+			cvSetReal2D( g, height - 1 - queryPt[0], queryPt[1], 255);
+			
+			int sector[k];
+			for(int i=0; i < k; i++)
+			{				
+				setSector(queryPt, dataPts[ nnIdx[i] ], sector[i]);
+			}
+			
+			int sort[k];
+			sortAddress(dists, sort, k);
+
+			for(int i=k-1; i > 0; i--)//start from the smallest to the biggest
+			{
+				
+				int sector1 = sector[ sort[i] ];
+				int x1 = dataPts[ nnIdx[ sort[i] ] ][1];
+				int y1 = dataPts[ nnIdx[ sort[i] ] ][0];				
+				
+				for(int j=i-1; j>0; j--)
+				{
+					
+					int sector2 = sector[ sort[j] ];
+					if( compareSector(sector1, sector2) )
+					{
+						int x2 = dataPts[ nnIdx[ sort[j] ] ][1];
+						int y2 = dataPts[ nnIdx[ sort[j] ] ][0];
+						if( abs( src[	x1*height + y1 ] - src[	x2*height + y2 ] ) > threshold )	//thetaV
+						{
+							dists[ sort[j] ]  *= 50;	//reduced by factor f
+						}					
+					}
+					
+				}
+
+				//carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[3]*1.5, 0)*alpha);
+				
+			}
+
+			
+		}
+		else	//far from edges
+		{
+			/*for (int i = 0; i < k; i++)
+			{
+				dists[i] = pow( dists[i], 0.5); 
+			}		*/
+		}
+
+		double distMin=dists[0];
+		for (int i = 0; i < k; i++)
+		{
+			dists[i] = pow( dists[i], 0.5);
+			if(distMin > dists[i]) distMin = dists[i];
+		}
+			
+		carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[1], 0)*alpha);
+
+	}
+
+	cvMerge(b, g, r, 0, type);
+	cvNamedWindow("interpolation type", 1);
+	cvShowImage("interpolation type", type);
+
+	delete [] nnIdx;							// clean things up
+	delete [] dists;
+	delete kdTree;
+	annClose();									// done with ANN
 }
 
 void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sample, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
@@ -2596,32 +2658,32 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sa
 	carve.resize(src.size(), 0);
 	knninterpolation(dst, dst, carve);
 
-	//GLfloat carveMax = 0;
-	//for(int i=0; i< srcHeight; i++)
-	//{
-	//	for(int j=0; j< srcHeight; j++)
-	//	{
-	//		//if( !bgMask[ i*height + j ] )
-	//		//{
-	//			if( carve[ i*srcHeight + j ] > carveMax ) carveMax = carve[ i*srcHeight + j ];
-	//		//}
-	//	}
-	//}
+	GLfloat carveMax = 0;
+	for(int i=0; i< srcHeight; i++)
+	{
+		for(int j=0; j< srcHeight; j++)
+		{
+			//if( !bgMask[ i*height + j ] )
+			//{
+				if( carve[ i*srcHeight + j ] > carveMax ) carveMax = carve[ i*srcHeight + j ];
+			//}
+		}
+	}
 
-	//for(int i=0; i< srcHeight; i++)
-	//{
-	//	for(int j=0; j< srcHeight; j++)
-	//	{
-	//		if( !bgMask[ i*srcHeight + j ] )
-	//		{
-	//			dst[ i*srcHeight + j ] -= carve[ i*srcHeight + j ] *0.5 / carveMax;
-	//		}
-	//	}
-	//}
+	for(int i=0; i< srcHeight; i++)
+	{
+		for(int j=0; j< srcHeight; j++)
+		{
+			if( !bgMask[ i*srcHeight + j ] )
+			{
+				dst[ i*srcHeight + j ] -= carve[ i*srcHeight + j ] *0.5 / carveMax;
+			}
+		}
+	}
 	
 }
 
-void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing = 16, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
+void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing = 1, IplImage *mask=NULL, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
 {	
 	if(srcHeight)
 	{}
@@ -2643,6 +2705,17 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 	{
 		gradientWeight(weight, ext, srcWidth);
 	}*/
+
+	/*IplImage *subedge = cvCreateImage( cvSize(edge->width, edge->height), IPL_DEPTH_8U, 1);
+	cvCopy(edge, subedge);
+
+	for(int i=1; i<spacing; i*=2)
+	{
+		IplImage *temp = cvCreateImage( cvSize(subedge->width/2, subedge->height/2), IPL_DEPTH_8U, 1);
+		cvPyrDown(subedge, temp);
+		subedge = cvCreateImage( cvSize(subedge->width/2, subedge->height/2), IPL_DEPTH_8U, 1);
+		cvCopy(temp, subedge);
+	}*/
 	
 	
 	for(int i=spacing/2; i< srcWidth; i+=spacing)
@@ -2650,87 +2723,99 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 		//#pragma omp parallel for private(hist)
 		for(int j=spacing/2; j< srcHeight; j+=spacing)
 		{
-			float hist[ HistogramBins+1 ];
-			for(int k=0; k<= HistogramBins; k++)
+			
+			if(mask == NULL)
 			{
-				hist[k] =0;
+				mask = cvCreateImage( cvSize(srcWidth, srcHeight), IPL_DEPTH_8U, 1);
+				cvSet(mask, cvScalar(1));
 			}
 			
-			if( src[ i*srcHeight + j ] == 0 )
+			if( cvGetReal2D(mask, srcHeight - 1 - j, i) )
 			{
-				dst[ i*srcHeight + j ] = 0;
-			}
-
-			else
-			{
-				int extU = -ext,extD = ext,extL = -ext,extR = ext;
-				
-					if( ext > j)		extL = -j;
-					if( ext > i)		extU = -i;
-					if( j+ext >= srcHeight)		extR = srcHeight - 1 - j;
-					if( i+ext >= srcHeight)		extD = srcHeight - 1 - i;					
-
-				for(int p=extU; p <= extD; p++)
+			
+				float hist[ HistogramBins+1 ];
+				for(int k=0; k<= HistogramBins; k++)
 				{
-						//#pragma omp parallel for
-						for(int q=extL; q <= extR; q++)
+					hist[k] =0;
+				}
+				
+				if( src[ i*srcHeight + j ] == 0 )
+				{
+					dst[ i*srcHeight + j ] = 0;
+				}
+
+				else
+				{
+					int extU = -ext,extD = ext,extL = -ext,extR = ext;
+					
+						if( ext > j)		extL = -j;
+						if( ext > i)		extU = -i;
+						if( j+ext >= srcHeight)		extR = srcHeight - 1 - j;
+						if( i+ext >= srcHeight)		extD = srcHeight - 1 - i;					
+
+					for(int p=extU; p <= extD; p++)
+					{
+							//#pragma omp parallel for
+							for(int q=extL; q <= extR; q++)
+							{
+								if( gradient == NULL)
+								{
+									hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += 1;
+								}
+								else
+								{
+									hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += weight[ (i+p)*srcHeight + j+q ] * distanceWeight(i, j, i+p, j+q, ext);;
+								}
+							}
+					}
+
+					float cumulative =  0;
+					for(int bin=1; bin < HistogramBins+1; bin++)
+					{
+						cumulative += hist[bin];
+					}
+					
+					/*float test[6] = {0, 50, 100, 200, 150, 100};
+					redistribute(test, 600, 1);*/
+					redistribute(hist, cumulative, scalingFactor*HistogramBins/10000);
+
+					float sum[ HistogramBins+1 ];
+			
+					
+					for(int bin=1; bin < src[ i*srcHeight + j] * HistogramBins + 1; bin++)
+					{
+						if( bin <= 1 )
 						{
-							if( gradient == NULL)
-							{
-								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += 1;
-							}
-							else
-							{
-								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += weight[ (i+p)*srcHeight + j+q ] * distanceWeight(i, j, i+p, j+q, ext);;
-							}
+							sum[bin] = 0;
+							//sum[bin] =  hist[bin] * 1000 /  number;
+							/*cout << "Sum " << sum[i] << std::endl;
+							sum2[i] =  cvGetReal1D(lHist1->bins, i);*/
 						}
+						else if( bin == 2)
+						{
+							sum[bin] = sum[bin-1] + ( hist[2] - hist[1]) /* *HistogramBins*/ / cumulative;
+						}
+						else
+						{
+							sum[bin] = sum[bin-1] + hist[bin] /* *HistogramBins*/  / cumulative;
+							//sum2[i] = sum2[i-1] + cvGetReal1D(lHist1->bins, i);
+						}
+					}
+					
+					dst[ i*srcHeight + j ] = sum [ (int) (src[ i*srcHeight + j ]  * HistogramBins) ] ;
 				}
 
-				float cumulative =  0;
-				for(int bin=1; bin < HistogramBins+1; bin++)
+				//dst.clear();
+				/*if(src.at( i*srcHeight + j) == 0)
 				{
-					cumulative += hist[bin];
+					dst.push_back(0);
 				}
-				
-				/*float test[6] = {0, 50, 100, 200, 150, 100};
-				redistribute(test, 600, 1);*/
-				redistribute(hist, cumulative, scalingFactor*HistogramBins/10000);
-
-				float sum[ HistogramBins+1 ];
-		
-				
-				for(int bin=1; bin < src[ i*srcHeight + j] * HistogramBins + 1; bin++)
+				else
 				{
-					if( bin <= 1 )
-					{
-						sum[bin] = 0;
-						//sum[bin] =  hist[bin] * 1000 /  number;
-						/*cout << "Sum " << sum[i] << std::endl;
-						sum2[i] =  cvGetReal1D(lHist1->bins, i);*/
-					}
-					else if( bin == 2)
-					{
-						sum[bin] = sum[bin-1] + ( hist[2] - hist[1]) /* *HistogramBins*/ / cumulative;
-					}
-					else
-					{
-						sum[bin] = sum[bin-1] + hist[bin] /* *HistogramBins*/  / cumulative;
-						//sum2[i] = sum2[i-1] + cvGetReal1D(lHist1->bins, i);
-					}
-				}
-				
-				dst[ i*srcHeight + j ] = sum [ (int) (src[ i*srcHeight + j ]  * HistogramBins) ] ;
+					dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
+				}*/
 			}
 
-			//dst.clear();
-			/*if(src.at( i*srcHeight + j) == 0)
-			{
-				dst.push_back(0);
-			}
-			else
-			{
-				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
-			}*/
 		}
 	}
 	
@@ -2740,7 +2825,7 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 	{
 		for(int j=0; j< srcHeight/spacing; j++)
 		{
-			cvSetReal2D(srcImg, srcHeight/spacing - 1 - j, i, dst[ (i+0.5)*spacing*srcHeight + (j+0.5)*spacing ] );
+			cvSetReal2D(srcImg, srcHeight/spacing - 1 - j, i, dst[ (int)((i+0.5)*spacing)*srcHeight + (int)((j+0.5)*spacing) ] );
 		}
 	}
 
@@ -2772,140 +2857,6 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 		
 }
 
-void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> *dst, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
-{	
-	if(srcHeight)
-	{}
-	else
-	{
-		srcHeight = sqrt((float)src.size());
-	}
-	int srcWidth = src.size() / srcHeight;
-	
-	vector<GLfloat> weight;
-	if( gradient != NULL)
-	{		
-		compress(gradient);
-		Image2Relief(gradient, weight);
-	}
-
-	int ext = (aperture-1) / 2;
-	/*if( gradient != NULL)
-	{
-		gradientWeight(weight, ext, srcHeight);
-	}*/
-	
-	
-	for(int i=0; i< srcWidth; i++)
-	{
-		//#pragma omp parallel for private(hist)
-		for(int j=0; j< srcHeight; j++)
-		{
-			float hist[ HistogramBins+1 ];
-			for(int k=0; k<= HistogramBins; k++)
-			{
-				hist[k] =0;
-			}
-			
-			if(src.at( i*srcHeight + j) == 0)
-			{
-				//dst.push_back(0);
-				dst->at(i*srcHeight + j) = 0;
-			}
-
-			else
-			{
-				int extU = -ext,extD = ext,extL = -ext,extR = ext;
-				
-					if( ext > j)		extL = -j;
-					if( ext > i)		extU = -i;
-					if( j+ext >= srcHeight)		extR = srcHeight - 1 - j;
-					if( i+ext >= srcHeight)		extD = srcHeight - 1 - i;					
-
-				for(int p=extU; p <= extD; p++)
-				{
-						//#pragma omp parallel for
-						for(int q=extL; q <= extR; q++)
-						{
-							if( gradient == NULL)
-							{
-								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += 1;
-							}
-							else
-							{
-								hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += weight[ (i+p)*srcHeight + j+q ] * distanceWeight(i, j, i+p, j+q, ext);;
-							}
-						}
-				}
-
-				float cumulative =  0;
-				for(int bin=1; bin < HistogramBins+1; bin++)
-				{
-					cumulative += hist[bin];
-				}
-				
-				/*float test[6] = {0, 50, 100, 200, 150, 100};
-				redistribute(test, 600, 1);*/
-				redistribute(hist, cumulative, 16.0*HistogramBins/10000);
-
-				float sum[ HistogramBins+1 ];
-		
-				
-				for(int bin=1; bin < src[ i*srcHeight + j] * HistogramBins + 1; bin++)
-				{
-					if( bin <= 1 )
-					{
-						sum[bin] = 0;
-						//sum[bin] =  hist[bin] * 1000 /  number;
-						/*cout << "Sum " << sum[i] << std::endl;
-						sum2[i] =  cvGetReal1D(lHist1->bins, i);*/
-					}
-					else if( bin == 2)
-					{
-						sum[bin] = sum[bin-1] + ( hist[2] - hist[1]) /* *HistogramBins*/ / cumulative;
-					}
-					else
-					{
-						sum[bin] = sum[bin-1] + hist[bin] /* *HistogramBins*/  / cumulative;
-						//sum2[i] = sum2[i-1] + cvGetReal1D(lHist1->bins, i);
-					}
-				}
-				
-				//dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *HistogramBins) ]  );
-				dst->at(i*srcHeight + j) = sum [ (int) (src.at( i*srcHeight + j)  *HistogramBins) ];
-			}
-
-			//dst.clear();
-			/*if(src.at( i*srcHeight + j) == 0)
-			{
-				dst.push_back(0);
-			}
-			else
-			{
-				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *1000) ]  );
-			}*/
-		}
-	}
-	
-	
-	
-	/*for(int i=0; i< srcHeight; i++)
-	{
-		for(int j=0; j< srcHeight; j++)
-		{		
-			if(src.at( i*srcHeight + j) == 0)
-			{
-				dst.push_back(0);
-			}
-			else
-			{
-				dst.push_back( sum [ (int) (src.at( i*srcHeight + j)  *HistogramBins) ]  );
-			}
-		}
-	}*/
-		
-}
-
 void vectorAdd(const vector<GLfloat> &src1, const vector<GLfloat> &src2, vector<GLfloat> &dst)
 {
 	if( src1.size() != src2.size() || src2.size() != dst.size() || dst.size() != src1.size() ) return;
@@ -2918,17 +2869,17 @@ void vectorAdd(const vector<GLfloat> &src1, const vector<GLfloat> &src2, vector<
 	}
 }
 
-void vectorAdd(vector<GLfloat> *src1, vector<GLfloat> *src2, vector<GLfloat> *dst)
-{
-	if( src1->size() != src2->size() || src2->size() != dst->size() || dst->size() != src1->size() ) return;
-	else
-	{
-		for(int i=0; i < src1->size(); i++)
-		{
-			dst->at(i) = src1->at(i) + src2->at(i);
-		}
-	}
-}
+//void vectorAdd(vector<GLfloat> *src1, vector<GLfloat> *src2, vector<GLfloat> *dst)
+//{
+//	if( src1->size() != src2->size() || src2->size() != dst->size() || dst->size() != src1->size() ) return;
+//	else
+//	{
+//		for(int i=0; i < src1->size(); i++)
+//		{
+//			dst->at(i) = src1->at(i) + src2->at(i);
+//		}
+//	}
+//}
 
 void vectorScale(const vector<GLfloat> &src, vector<GLfloat> &dst, float scale)
 {
@@ -2939,12 +2890,31 @@ void vectorScale(const vector<GLfloat> &src, vector<GLfloat> &dst, float scale)
 	}
 }
 
-void vectorScale(vector<GLfloat> *src, vector<GLfloat> *dst, float scale)
+//void vectorScale(vector<GLfloat> *src, vector<GLfloat> *dst, float scale)
+//{
+//	if( src->size() != dst->size() ) return;
+//	for(int i=0; i < src->size(); i++)
+//	{
+//			dst->at(i) = src->at(i) * scale;
+//	}
+//}
+
+void vectorReplace(const vector<GLfloat> &src, const vector<GLfloat> &replace, vector<GLfloat> &dst)
 {
-	if( src->size() != dst->size() ) return;
-	for(int i=0; i < src->size(); i++)
+	if( src.size() != replace.size() || replace.size() != dst.size() || dst.size() != src.size() ) return;
+	else
 	{
-			dst->at(i) = src->at(i) * scale;
+		for(int i=0; i < src.size(); i++)
+		{
+			if( replace[i] )
+			{
+				dst[i] = replace[i];
+			}
+			else
+			{
+				dst[i] = src[i];
+			}
+		}
 	}
 }
 
@@ -3821,12 +3791,12 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 			}
 			Image2Relief(srcImg, referenceHeight);*/
 
-			int height = (winHeight - boundary*2) / pow(2.0, pyrLevel - 1);
-			int width = heightPyr[pyrLevel - 1].size() / height;
+			int height = (winHeight - boundary*2) /*/ pow(2.0, pyrLevel - 1)*/;
+			int width = heightPyr[0].size() / height;
 
 			for(int k=1; k <= n; k++)
 			{
-				equalizeHist(src, AHEHeight, pow(2.0, level), gradient, pow(2.0, k-1) * 8*2 + 1, height);
+				equalizeHist(src, AHEHeight, pow(2.0, level), NULL, gradient, pow(2.0, k-1) * ahe_m *2 + 1, height);
 				vectorAdd(compressedH, AHEHeight, compressedH);
 				AHEHeight.clear();
 			}
@@ -3834,10 +3804,11 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 			
 			IplImage *img, *img2, *imgGa;
 			
-			img = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
+			int divisor = pow(2.0, pyrLevel - 2);
+			img = cvCreateImage( cvSize( width/divisor,  height/divisor), IPL_DEPTH_32F, 1);
 			/*****	laplacian layer	*****/			
-			IplImage *imgLa = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);	
-			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa, (winHeight - boundary*2)/pow(2.0, pyrLevel - 2));
+			IplImage *imgLa = cvCreateImage( cvSize( width/divisor,  height/divisor), IPL_DEPTH_32F, 1);	
+			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa, (winHeight - boundary*2)/divisor);
 			
 			//cvAdd(imgGa, imgLa, img);
 			cvCopy(imgLa, img);
@@ -3908,7 +3879,7 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
 }
 
-void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *weightY, int level=0)
+void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *weightY, int level=0, IplImage *mask=NULL)
 {	
 	
 	/*OpenglLine(0, 0, 0, 3, 0, 0);
@@ -4094,12 +4065,12 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 			if(level)
 			{
 				//int side = sqrt( (float)size );
-				int height = (winHeight - boundary*2)/pow(2.0, level);
+				int height = (winHeight - boundary*2)/*/pow(2.0, level)*/;
 				int width = size/height;
 				
 				for(int k=1; k <= n; k++)
 				{
-					equalizeHist(src, AHEHeight, weight, pow(2.0, k-1) * 8*2 + 1, height);
+					equalizeHist(src, AHEHeight, pow(2.0, level), NULL, weight, pow(2.0, k-1) * ahe_m*2/ + 1, height);
 					vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 					AHEHeight.clear();
 					AHEHeight.resize(size, 0);
@@ -4124,42 +4095,42 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 				Image2Relief(sample, knn);
 			
 				carve.resize(referenceHeight.size(), 0);
-				knninterpolation(knn, knn, carve);
+				knninterpolation( heightPyr[0], carve);
 
 				height = winHeight - boundary*2;
 				width = heightPyr[0].size() / height;
-				GLfloat carveMax = 0;
-				for(int i=0; i< width; i++)
-				{
-					for(int j=0; j< height; j++)
-					{
-						//if( !bgMask[ i*height + j ] )
-						//{
-							if( carve[ i*height + j ] > carveMax ) carveMax = carve[ i*height + j ];
-						//}
-					}
-				}
+				//GLfloat carveMax = 0;
+				//for(int i=0; i< width; i++)
+				//{
+				//	for(int j=0; j< height; j++)
+				//	{
+				//		//if( !bgMask[ i*height + j ] )
+				//		//{
+				//			if( carve[ i*height + j ] > carveMax ) carveMax = carve[ i*height + j ];
+				//		//}
+				//	}
+				//}
 
-				if(carveMax)
-				{
-					for(int i=0; i< width; i++)
-					{
-						for(int j=0; j< height; j++)
-						{
-							if( !bgMask[ i*height + j ] )
-							{
-								referenceHeight[ i*height + j ] -= carve[ i*height + j ] *0.25 / carveMax;
-							}
-						}
-					}
-				}
+				//if(carveMax)
+				//{
+				//	for(int i=0; i< width; i++)
+				//	{
+				//		for(int j=0; j< height; j++)
+				//		{
+				//			if( !bgMask[ i*height + j ] )
+				//			{
+				//				referenceHeight[ i*height + j ] -= carve[ i*height + j ] *0.25 / carveMax;
+				//			}
+				//		}
+				//	}
+				//}
 
 			}
 			else
 			{
 					for(int k=1; k <= n; k++)
 					{
-						equalizeHist(src, AHEHeight, sample /*, pow(2.0, pyrLevel-1)*/, weight, pow(2.0, k-1) * 16*2 + 1, winHeight - boundary*2);
+						equalizeHist(src, AHEHeight, 1, 0/*, sample*/ /*, pow(2.0, pyrLevel-1)*/, weight, pow(2.0, k-1) * ahe_m*2 + 1, winHeight - boundary*2);
 						vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 						AHEHeight.clear();
 						AHEHeight.resize(size, 0);
@@ -5564,7 +5535,7 @@ void display0(void)
 //	glutSwapBuffers();
 //}
 
-void skewness(const IplImage *src, IplImage *dst, int aperture=3)
+void setSkewness(const IplImage *src, IplImage *dst, int aperture=3)
 {
 	int width =src->width;
 	int height = src->height;
@@ -5689,7 +5660,8 @@ void multiDensity(IplImage *src, IplImage *dst, IplImage *gradientX, IplImage *g
 
 			if(value)
 			{				
-				if( cvGetReal2D(gradient, j, i) < 40)
+				//if( cvGetReal2D(gradient, j, i) < 40)
+				if( cvGetReal2D(ImageL, j, i) )
 				{
 					
 					for(int k=0; k<n; k++)
@@ -5705,6 +5677,31 @@ void multiDensity(IplImage *src, IplImage *dst, IplImage *gradientX, IplImage *g
 				}
 			}
 
+		}
+	}
+}
+
+void extractLine(IplImage *src, IplImage *dst, int interval, int linewidth)
+{
+	int m = cvGetSize(src).width;
+	int n = cvGetSize(src).height;
+	
+	cvSet( dst, cvScalar(255) );
+
+	int value =255;
+	
+	for(int level=0; level<255; level++)
+	{
+		for(int i=0; i<n; i++)
+		{
+			for(int j=0; j<m; j++)
+			{
+				value = cvGetReal2D(src, i, j);
+				if(level*interval <= value && level*interval+linewidth > value)
+				{
+					cvSetReal2D(dst, i, j, 0);
+				}
+			}
 		}
 	}
 }
@@ -5756,7 +5753,7 @@ void display(void)
 		{
 			time1 = true;
 			total_time1 = 0;
-			start_time1 = clock();
+			//start_time1 = clock();
 
 			vector<GLfloat> laplace[pyrLevel - 1];
 
@@ -5788,8 +5785,10 @@ void display(void)
 				IplImage *gradientY =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_16S, 1);
 				cvSobel( Image, gradientX, 1, 0);
 				cvSobel( Image, gradientY, 0, 1);
-				
-				histogramBase(heightPyr[0], gradientX, gradientY, pyrLevel-1, 0.5 );
+
+				start_time1 = clock();
+				histogramBase(heightPyr[0], gradientX, gradientY, pyrLevel-1, 1 );
+					
 			}
 			else	//F4
 			{
@@ -5822,9 +5821,7 @@ void display(void)
 
 		if(relief2)
 		{
-			time2 = true;
-			total_time2 = 0;
-			start_time2 = clock();
+			
 
 			int width = sqrt( (float) heightPyr[0].size() );
 			/*IplImage *img= cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
@@ -5852,21 +5849,7 @@ void display(void)
 			cvNamedWindow("Original Points", 1);
 			cvShowImage("Original Points", Image);
 
-			/*****	Skewness	*****/		
-			IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
-			skewness(Image, feature, 5);
-
-			multiDensity(feature, sample, gradientX, gradientY);
 			
-			/*cvThreshold(feature, feature, 0.000001, 255, CV_THRESH_BINARY);
-
-			double featureMin, featureMax;
-			cvMinMaxLoc(feature, &featureMin, &featureMax);
-			cout << "featureMax: " << featureMax << endl;
-			double scale = 255.0 / (featureMax - featureMin);   
-			double shift = -featureMin * scale;  
-			cvConvertScaleAbs(feature, sample, scale, shift);*/
-			/*****	Skewness	*****/
 
 			/*****	Harris Corner	*****/
 			//IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
@@ -5885,6 +5868,7 @@ void display(void)
 
 			/*****	Canny Edge	*****/
 			edge =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			IplImage *edgeInv =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
 			
 			double featureMin, featureMax;
 			cvMinMaxLoc(img0, &featureMin, &featureMax);
@@ -5893,10 +5877,103 @@ void display(void)
 			double shift = -featureMin * scale;  
 			cvConvertScaleAbs(img0, edge, scale, shift);
 
-			cvCanny(edge, edge, 15, 25);
-			cvNamedWindow("Edge Map", 1);
-			cvShowImage("Edge Map", edge);
+			//cvCanny(edge, edge, 5, 25);
+			cvCanny(edge, edge, 10, 20);
+			cvThreshold(edge, edgeInv, 250, 255, CV_THRESH_BINARY_INV);
+			
 			/*****	Canny Edge	*****/
+
+			/***** Morphology Opening *****/
+			int nSize=3;
+			IplConvKernel* circularElem = cvCreateStructuringElementEx(	nSize, // columns
+																													nSize, // rows
+																													floor(nSize/2.0), // anchor_x
+																													floor(nSize/2.0), // anchor_y
+																													CV_SHAPE_ELLIPSE, // shape
+																													NULL);
+			cvMorphologyEx( edgeInv, edgeInv, 0, circularElem, CV_MOP_OPEN, 3 );
+			cvNamedWindow("Edge Map", 1);
+			cvShowImage("Edge Map", edgeInv);
+			/***** Morphology Opening *****/
+
+			/***** Distance Field *****/
+			IplImage *DF = cvCreateImage( cvGetSize(edge), IPL_DEPTH_32F, 1 );
+			IplImage *ImageDF =  cvCreateImage( cvGetSize(edge),  IPL_DEPTH_8U, 1 );
+			cvDistTransform(edgeInv, DF);
+
+			cvMinMaxLoc(DF, &featureMin, &featureMax);
+			scale = 255.0 / (featureMax - featureMin);   
+			shift = -featureMin * scale;  
+			cvConvertScaleAbs(DF, ImageDF, scale, shift);
+			cvSmooth(ImageDF, ImageDF, CV_GAUSSIAN, 5);
+			cvNamedWindow("Distance Field", 1);
+			cvShowImage("Distance Field", ImageDF);
+			/***** Distance Field *****/
+
+			/***** Offset Lane *****/
+			ImageL =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+			int interval = 12,linewidth = 6;
+			extractLine(ImageDF, ImageL, interval, linewidth);
+			cvNamedWindow("Offset Lane", 1);
+			cvShowImage("Offset Lane", ImageL);
+			/***** Offset Lane *****/
+
+			/*****	Skewness	*****/	
+			IplImage *skewness =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+			setSkewness(Image, skewness, 5);
+
+			multiDensity(skewness, sample, gradientX, gradientY);
+			
+			/*cvThreshold(feature, feature, 0.000001, 255, CV_THRESH_BINARY);
+
+			cvMinMaxLoc(feature, &featureMin, &featureMax);
+			cout << "featureMax: " << featureMax << endl;
+			scale = 255.0 / (featureMax - featureMin);   
+			shift = -featureMin * scale;  
+			cvConvertScaleAbs(feature, sample, scale, shift);*/
+			/*****	Skewness	*****/
+
+			/*****	Poisson Disk Sampling	*****/
+			IplImage *wX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+			IplImage *wY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
+			cvConvertScale(gradientX, wX, 1, 0);
+			cvConvertScale(gradientY, wY, 1, 0);
+			cvPow(wX, wX, 2);
+			cvPow(wY, wY, 2);
+
+			IplImage *weight = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+			cvAdd(wX, wY, weight);
+			cvPow(weight, weight, 0.5);
+			cvAbs(laplace, laplace);
+			
+			compress(laplace);
+			cvMinMaxLoc(laplace, &featureMin, &featureMax);
+			scale = 255.0 / (featureMax - featureMin);   
+			shift = -featureMin * scale;  
+			IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			cvConvertScaleAbs(laplace, feature, scale, shift);
+			cvConvertScale(feature, feature, -1, 255);
+			//cvThreshold(feature, feature, 252, 255, CV_THRESH_BINARY);
+			
+
+			vector<unsigned int> importance;
+			Image2Relief(feature, importance);
+			PDSampler *sampler = new PenroseSamplerW(0.02, img0->width, img0->height, importance);
+			sampler->complete();
+
+			
+			IplImage *PDSample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			cvSet(PDSample, cvScalar(255));
+			int N = (int) sampler->points.size();
+			for (int i=0; i<N; i++) {
+				cvCircle(PDSample, cvPoint( (1+sampler->points[i].y)*img0->width, (-sampler->points[i].x)*img0->height ), 0, cvScalarAll(0), -1);
+			}
+
+			cvNamedWindow("Importance", 1);
+			cvShowImage("Importance", feature);
+			cvNamedWindow("Poisson Disk Sampling", 1);
+			cvShowImage("Poisson Disk Sampling", PDSample);
+			/*****	Poisson Disk Sampling	*****/
 
 			cout << "#NonZero of Original: " << numNonZero << endl;		
 
@@ -5907,6 +5984,9 @@ void display(void)
 			cvNamedWindow("Sample Points", 1);
 			cvShowImage("Sample Points", sample);
 			
+			time2 = true;
+			total_time2 = 0;
+			start_time2 = clock();
 
 			if( reference == 1 )		//F9
 			{
@@ -5934,7 +6014,26 @@ void display(void)
 				cvSobel( Image, gradientX, 1, 0);
 				cvSobel( Image, gradientY, 0, 1);
 				
-				reliefHistogram(heightPyr[pyrLevel-1], gradientX, gradientY, level);
+				reliefHistogram(heightPyr[0], gradientX, gradientY, level);
+
+				//height = winHeight - boundary*2;
+				//int size = referenceHeight.size();
+				//vector<GLfloat> AHEHeight;
+				//AHEHeight.resize(size);
+
+				////cvMorphologyEx( edge, edge, 0, circularElem, CV_MOP_CLOSE, 3 );
+				//cvDilate( edge, edge, circularElem, 1);
+				//equalizeHist(heightPyr[0], AHEHeight, 1, edge, weight, pow(2.0, k-1) * 8*2 + 1, height);
+
+				//IplImage *edgeHeight = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
+				//Relief2Image(AHEHeight, edgeHeight);
+				//IplImage *showedge =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				//cvConvertScaleAbs(edgeHeight, showedge, 255, 0);
+				//cvNamedWindow("Show Edge", 1);
+				//cvShowImage("Show Edge", showedge);
+				//
+				//vectorReplace(referenceHeight, AHEHeight, referenceHeight);
+				//BuildRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
 			}
 			else	//F12
 			{		
@@ -6045,8 +6144,10 @@ void mouseButton(int button, int state, int x, int y)
 
 void myReshape0(int w, int h)
 {
-    winHeight0 = h;
-	winWidth0 =  h*2;
+    float multiple = h/4.0;
+
+	winHeight0 = 4*round(multiple);
+	winWidth0 =  winHeight0*2;
     
 	perspective[1] = winWidth0/2.0/winHeight0;
 
