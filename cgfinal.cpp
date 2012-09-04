@@ -43,9 +43,11 @@ using namespace cv;
 #endif
 
 #define HistogramBins  10000
-#define ahe_m 16
+#define ahe_m 128
+int interval = 24,linewidth = 6;
 #define SIDE 29
 typedef pair<int, float> P;
+typedef pair<int, int> Node;
 
 float maxf(float a, float b)
 {
@@ -72,8 +74,10 @@ inline double log2(double x)
 //using namespace cv;
 
 int 	winWidth0, winHeight0, winWidth, winHeight;
-int windowHeight = 440, horizontalSplit = 3;
+int windowHeight = 552, horizontalSplit = 3;
 int Window0, Window;
+int boundary =20;
+int disp=0;
 
 float 	angle = 0.0, axis[3], trans[3];
 bool 	trackingMouse = false;
@@ -96,11 +100,11 @@ GLint scalingFactor = 16;
 GLdouble MODELSCALE = 1.75;
 GLdouble LIGHTP = 15;
 
-bool scene=true, relief1=false, relief2=false , mesh1=false, mesh2=false, profile0=false, profile1=false, profile2=false, map2=true, time1=false, time2=false;
+bool scene=true, relief1=false, relief2=false , mesh1=false, mesh2=false, profile0=false, profile1=false, profile2=false, map1=true, map2=true, time1=false, time2=false;
 float dynamicRange;
 GLdouble angleX = 0,angleY = 0,angleZ = 0,scale =1;
 GLdouble reliefAngleX = 0, reliefAngleY = 0, reliefAngleZ = 0;
-GLdouble outputHeight = 0.05;//0.05;
+GLdouble outputHeight = (windowHeight - boundary*2)/10240.0;//0.05;
 
 GLfloat lightPos0[] = { -15.f, 15.0f, 15.0, 1.0f };
 GLfloat lightPos1[] = { -25.f, 15.0f, outputHeight*81.25 + 0.4375, 1.0f };
@@ -119,17 +123,18 @@ vector<bool> bgMask;
 vector<GLfloat> outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
-IplImage *img0, *colorImg, *sample, *edge,*histImage, *ImageL, *ImageLPrime;
+IplImage *img0, *colorImg, *sample, *edge, *histImage1, *histImage2, *histImage3, *ImageL, *ImageLPrime;
 //vector<GLfloat> height;
 vector<GLfloat> compressedH, referenceHeight, sceneProfile, reliefProfile;
-int boundary =20;
-int disp=0;
+
 
 //sampling density
 const int n=4;
 //float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
 float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
-float radius[n] = {8, 11, 13, 15};
+float o = (interval - linewidth) * 1/3;
+float radius[n] = {o, o + 3, o + 5, o + 7};
+//float radius[n] = {30, 33, 35, 37};
 
 GLdouble *pThreadRelief = NULL;
 GLdouble *pThreadNormal = NULL;
@@ -139,7 +144,7 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-int method = 3, reference = 3;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
+int method = 3, reference = 0;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
 int numNonZero;
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
@@ -1286,6 +1291,18 @@ void firstLaplace(void)
 			glReadPixels(0, 0, winWidth/3, winHeight, GL_GREEN, GL_UNSIGNED_BYTE, green);
 			glReadPixels(0, 0, winWidth/3, winHeight, GL_BLUE, GL_UNSIGNED_BYTE, blue);
 
+			for(int i=boundary; i<winWidth/3 - boundary; i++)
+			{
+				for(int j=boundary; j<winHeight - boundary; j++)
+				{					
+					cvSetReal2D( bImg, winHeight - 1 - j - boundary, i - boundary, blue[ j*winWidth/3 + i ]);
+					cvSetReal2D( gImg, winHeight - 1 - j - boundary, i - boundary, green[ j*winWidth/3 + i ]);
+					cvSetReal2D( rImg, winHeight - 1 - j - boundary, i - boundary, red[ j*winWidth/3 + i ]);
+				}
+			}
+
+			cvMerge(bImg, gImg, rImg, 0, colorImg);
+
 			float *depthmap = new float[winWidth/3*winHeight];
 			glReadPixels(0, 0, winWidth/3, winHeight, GL_DEPTH_COMPONENT, GL_FLOAT, depthmap);
 
@@ -1420,6 +1437,18 @@ void firstLaplace(void)
 					sceneProfile.push_back( ( heightPyr[0][ floor( (height-1)/2.0 ) + i*height ] + heightPyr[0][ ceil( (height-1)/2.0 ) + i*height ] ) / 2 );
 				}
 
+				//for(int i=0; i < height - 1; i++)
+				//{			
+				//	/*if( winHeight%2 == 0 )
+				//	{
+				//		sceneProfile.push_back( (heightPyr[0][(winHeight-1)/2 + i*height] + heightPyr[0][(winHeight+1)/2 + i*height]) / 2 );
+				//	}
+				//	else
+				//	{
+				//		sceneProfile.push_back( heightPyr[0][winHeight/2 + i*height] );
+				//	}*/
+				//	sceneProfile.push_back( ( heightPyr[0][ floor( (width-1)*3/4.0 )*height + i ] + heightPyr[0][ ceil( (width-1)*3/4.0 )*height + i ] ) / 2 );
+				//}
 				
 
 				IplImage *profileImg = cvCreateImage( cvSize( width, height ), IPL_DEPTH_8U, 1);
@@ -1868,7 +1897,7 @@ void bucketsort(float src[], int dst[], int n, int k = HistogramBins/100)
 	//		if(hist[i] > histMax)	histMax = hist[i];
 	//	}	
 	//	
-	//	//int bin_w = cvRound((double)histImage->width/k);
+	////int bin_w = cvRound((double)histImage->width/k);
 
 	//	for(int i=0; i < k; i++)
 	//	{
@@ -1906,7 +1935,6 @@ void clipping(float h[], float cumulative, float l)
 	l = cumulative*l / HistogramBins;
 	
 	int i;
-	float S = 0;
 	for(i = 1; i < HistogramBins+1; i++)
 	{
 		if( h[i] > l )
@@ -1917,7 +1945,7 @@ void clipping(float h[], float cumulative, float l)
 	
 }
 
-void redistribute(float h[], float cumulative, float l)
+void redistribute(float h[], float cumulative, float l, float ratio=1)
 {
 	l = cumulative*l / HistogramBins;
 
@@ -1934,7 +1962,7 @@ void redistribute(float h[], float cumulative, float l)
 	{
 		if( h[ sort[i] ] >= l )
 		{
-			S += h[ sort[i] ];
+			S += (h[ sort[i] ] - l) * ratio;
 		}
 		else break;
 	}
@@ -1945,7 +1973,7 @@ void redistribute(float h[], float cumulative, float l)
 		{
 			if( S / ( HistogramBins - i ) > l - h[ sort[i+1] ] )
 			{
-				S +=  h[ sort[i+1] ] - l;
+				S +=  (h[ sort[i+1] ] - l) * ratio;
 			}
 			else	break;
 		}
@@ -1967,7 +1995,7 @@ void redistribute(float h[], float cumulative, float l)
 const int				k				= 4;			// number of nearest neighbors
 int				dim				= 2;			// dimension
 double			eps				= 0;			// error bound
-int				maxPts			= 5000;			// maximum number of data points
+int				maxPts			= 50000;			// maximum number of data points
 istream*		dataIn			= NULL;			// input for data points
 istream*		queryIn			= NULL;			// input for query points
 
@@ -2201,6 +2229,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 	//getArgs(argc, argv);						// read command-line arguments
 
 	queryPt = annAllocPt(dim);					// allocate query point
+	maxPts = pow( (float)winHeight - boundary*2, 2);
 	dataPts = annAllocPts(maxPts, dim);			// allocate data points
 	nnIdx = new ANNidx[k];						// allocate near neigh indices
 	dists = new ANNdist[k];						// allocate near neighbor dists
@@ -2281,7 +2310,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 				if(distMin > dists[i]) distMin = dists[i];
 			}
 			
-			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[0]*0.5, 0)*alpha);
+			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[3]*1.5, 0)*alpha);
 
 			for (int i = 0; i < k; i++)
 			{
@@ -2331,7 +2360,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &dst, vector<G
 				dists[i] = pow( dists[i], 0.5); 
 			}		
 
-			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( dists[k-1]-radius[0]*0.5, 0)*alpha);
+			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( dists[k-1]-radius[3]*1.5, 0)*alpha);
 		}
 		else	//far from edges
 		{
@@ -2389,7 +2418,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &carve, int m=
 		{
 			if( !bgMask[ i*height + j ] )
 			{
-				if( cvGetReal2D(sample, height - 1 - j, i) )
+				if( cvGetReal2D(sample, height - 1 - j, i) != 0 )
 				{
 					dataS += itoa(j, buffer, 10);
 					dataS += " ";
@@ -2422,6 +2451,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &carve, int m=
 	//getArgs(argc, argv);						// read command-line arguments
 
 	queryPt = annAllocPt(dim);					// allocate query point
+	maxPts = pow( (float)winHeight - boundary*2, 2);
 	dataPts = annAllocPts(maxPts, dim);			// allocate data points
 	nnIdx = new ANNidx[k];						// allocate near neigh indices
 	dists = new ANNdist[k];						// allocate near neighbor dists
@@ -2442,11 +2472,14 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &carve, int m=
 		//printPt(cout, dataPts[nPts]);
 		nPts++;
 	}
+	cout << "Points: " << nPts << endl;
 
 	kdTree = new ANNkd_tree(					// build search structure
 					dataPts,					// the data points
 					nPts,						// number of points
 					dim);						// dimension of space
+
+	float Min=10000, Max=0;
 
 	while (readPt(*queryIn, queryPt)) {			// read query points
 		//cout << "Query point: ";				// echo query point
@@ -2491,7 +2524,7 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &carve, int m=
 		distMax = sqrt(distMax);
 		distPrimeMax = sqrt(distPrimeMax);
 
-		float alpha = 0.01;
+		float alpha = 10;
 		if( distMax < thetaD )	//on  the edge
 		{
 			cvSetReal2D( r, height - 1 - queryPt[0], queryPt[1], 255);
@@ -2510,50 +2543,50 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &carve, int m=
 		{
 			cvSetReal2D( g, height - 1 - queryPt[0], queryPt[1], 255);
 			
-			int sector[k];
-			for(int i=0; i < k; i++)
-			{				
-				setSector(queryPt, dataPts[ nnIdx[i] ], sector[i]);
-			}
-			
-			int sort[k];
-			sortAddress(dists, sort, k);
+			//int sector[k];
+			//for(int i=0; i < k; i++)
+			//{				
+			//	setSector(queryPt, dataPts[ nnIdx[i] ], sector[i]);
+			//}
+			//
+			//int sort[k];
+			//sortAddress(dists, sort, k);
 
-			for(int i=k-1; i > 0; i--)//start from the smallest to the biggest
-			{
-				
-				int sector1 = sector[ sort[i] ];
-				int x1 = dataPts[ nnIdx[ sort[i] ] ][1];
-				int y1 = dataPts[ nnIdx[ sort[i] ] ][0];				
-				
-				for(int j=i-1; j>0; j--)
-				{
-					
-					int sector2 = sector[ sort[j] ];
-					if( compareSector(sector1, sector2) )
-					{
-						int x2 = dataPts[ nnIdx[ sort[j] ] ][1];
-						int y2 = dataPts[ nnIdx[ sort[j] ] ][0];
-						if( abs( src[	x1*height + y1 ] - src[	x2*height + y2 ] ) > ::threshold )	//thetaV
-						{
-							dists[ sort[j] ]  *= 50;	//reduced by factor f
-						}					
-					}
-					
-				}
+			//for(int i=k-1; i > 0; i--)//start from the smallest to the biggest
+			//{
+			//	
+			//	int sector1 = sector[ sort[i] ];
+			//	int x1 = dataPts[ nnIdx[ sort[i] ] ][1];
+			//	int y1 = dataPts[ nnIdx[ sort[i] ] ][0];				
+			//	
+			//	for(int j=i-1; j>0; j--)
+			//	{
+			//		
+			//		int sector2 = sector[ sort[j] ];
+			//		if( compareSector(sector1, sector2) )
+			//		{
+			//			int x2 = dataPts[ nnIdx[ sort[j] ] ][1];
+			//			int y2 = dataPts[ nnIdx[ sort[j] ] ][0];
+			//			if( abs( src[	x1*height + y1 ] - src[	x2*height + y2 ] ) > ::threshold )	//thetaV
+			//			{
+			//				dists[ sort[j] ]  *= 50;	//reduced by factor f
+			//			}					
+			//		}
+			//		
+			//	}
 
-				//carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[3]*1.5, 0)*alpha);
-				
-			}
+			//	carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[3]*1.5, 0)*alpha);
+			//	
+			//}
 
 			
 		}
 		else	//far from edges
 		{
-			/*for (int i = 0; i < k; i++)
+			for (int i = 0; i < k; i++)
 			{
-				dists[i] = pow( dists[i], 0.5); 
-			}		*/
+				dists[i] = 0; 
+			}		
 		}
 
 		double distMin=dists[0], distMin2;
@@ -2572,7 +2605,11 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &carve, int m=
 			
 		/*if( cvGetReal2D(ImageL, height - 1 - queryPt[0], queryPt[1]) )
 		{*/
-			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1+maxf( distMin-radius[0], 0)*alpha);
+			carve[ queryPt[1]*height + queryPt[0] ] = 1.0/alpha*log10(1.0+maxf( (float)distMin-/*190*/radius[0]*1, 0)*alpha);
+
+			
+			if(distMin > Max) Max = distMin;
+			else if(Min > distMin) Min = distMin;
 			
 			//ANNpoint p = annAllocPt(dim);/* = midpoint(dataPts[ nnIdx[0] ], dataPts[ nnIdx[1] ]);*/
 			//p[0] = (dataPts[ nnIdx[0] ][0] + dataPts[ nnIdx[1] ][0]) / 2;
@@ -2585,9 +2622,349 @@ void knninterpolation(const vector<GLfloat> &src, vector<GLfloat> &carve, int m=
 
 	}
 
+	cout << "Min: " << Min << " Max: " << Max << endl;
+
 	cvMerge(b, g, r, 0, type);
 	cvNamedWindow("interpolation type", 1);
 	cvShowImage("interpolation type", type);
+
+	delete [] nnIdx;							// clean things up
+	delete [] dists;
+	delete kdTree;
+	annClose();									// done with ANN
+}
+
+void setPathMask(vector< pair<int, int> > &mask, int extent=5)
+{
+	for(int i=-extent; i <= extent; i++)
+	{
+		for(int j=-extent; j <= extent; j++)
+		{
+			if( i==0 && j==0 ) continue;
+			if( gcd( abs(i), abs(j) ) == 1 )
+			{
+				mask.push_back( pair<int, int>(i, j) );
+			}
+		}
+	}
+}
+
+float length(Node p1, Node p2)
+{
+	return sqrt( pow((float)p1.first - p2.first, 2) + pow((float)p1.second - p2.second, 2) );
+}
+
+float costSlope(Node p1, Node p2)
+{
+	int height = winHeight - boundary*2;
+	float h1 = compressedH[ p1.first*height + p1.second ];
+	float h2 = compressedH[ p2.first*height + p2.second ];
+	return abs( (h1 - h2)*height ) / sqrt( pow( length(p1, p2), 2) + pow( (h1 - h2)*height, 2) );
+}
+
+float costCurvature(Node p1, Node p2, Node p3)
+{
+	float x1, y1, x2, y2;
+	x1 = p2.first - p1.first;
+	y1 = p2.second - p1.second;
+	x2 = p3.first - p2.first;
+	y2 = p3.second - p2.second;
+	float theta;
+	theta = abs( atan2(y1, x1) - atan2(y2, x2) );
+	if( theta > M_PI)
+	{
+		theta = 2*M_PI - theta;
+	}
+	theta = M_PI - theta;
+	return theta / M_PI;//normalize to [0,1]
+}
+
+float cost(vector< Node > path, float weight=0.5)
+{
+	float slope=0, curvature=0;
+	int i;
+	for(i=0; i < path.size()-2; i++)
+	{
+		slope += costSlope(path[i+1], path[i+2]);
+		curvature += costCurvature(path[i], path[i+1], path[i+2]);
+	}
+	//slope += costSlope(path[i], path[i+1]);
+
+	return (1-weight)*slope + weight*curvature;
+}
+
+void setMinOfPathMask(vector< Node > pathMask, vector< Node > &path, Node &p, float weight=0.5)
+{
+	int height = winHeight - boundary*2;
+	
+	float costMin=5/*, lengthMin=costList.size()*/;
+	vector < pair<int, float> > costList;
+	int index=-1;
+	for(int i=0; i < pathMask.size(); i++)
+	{
+		int x = path[ path.size()-2 ].first + pathMask[i].first;//
+		int y = path[ path.size()-2 ].second + pathMask[i].second;//
+
+		if( x >= 0 && y >= 0 && x < height && y < height && !bgMask[ x*height + y ])
+		{
+			p = Node(x, y);
+			vector< Node > newpath /*= vector< Node >()*/;
+			/*newpath.push_back( path[ path.size() - 2 ] );
+			newpath.push_back( p );*/
+			if( path.size() < 3 )
+			{
+				newpath.assign( path.end()-2, path.end() );
+			}
+			else
+			{
+				newpath.assign( path.end()-3, path.end() );
+			}
+			newpath.insert( newpath.end()-1, p );
+
+			float costCurrent = cost(newpath, weight);
+			//cout << "costCurrent: " << costCurrent << endl;
+			if( costCurrent <= costMin )
+			{
+				costList.push_back( pair<int, float>(i, costCurrent) );
+				costMin = costCurrent;
+
+				/*lengthCurrent = length( path[ path.size()-2 ], p );
+				if( lengthCurrent < lengthMin )
+				{
+					lengthMin = lengthCurrent;
+					index = i;
+				}*/
+			}
+		}
+
+	}
+
+	float lengthMin=costList.size();
+	for(int i=0; i < costList.size(); i++)
+	{
+		if( costList[i].second == costMin )
+		{
+			int x = path[ path.size()-2 ].first + pathMask[ costList[i].first ].first;
+			int y = path[ path.size()-2 ].second + pathMask[ costList[i].first ].second;
+			
+			float lengthCurrent = length( path[ path.size()-1 ], Node(x, y) );
+			if( lengthCurrent < lengthMin )
+			{
+				lengthMin = lengthCurrent;
+				index = i;
+			}
+		}
+	}
+
+	if( index != -1)
+	{
+		int x = path[ path.size()-2 ].first + pathMask[index].first;
+		int y = path[ path.size()-2 ].second + pathMask[index].second;
+		p = Node(x, y);
+		path.insert( path.end()-1, p );
+	}
+}
+
+void printPath(const vector< Node > &path)
+{
+	for(int i=0; i<path.size(); i++)
+	{
+		cout <<'(' << path[i].first <<", " << path[i].second <<')' << '\t' ;
+	}
+	cout << endl;
+}
+
+void findPath(vector< Node > &path, float zpower=0.5, int extent=5)
+{
+	vector< Node > pathMask;
+	setPathMask(pathMask, extent);
+	cout << "Mask Size: " << pathMask.size() << endl;
+
+	float costMax;
+	costMax = cost(path);
+	vector< Node > initialPath = path;
+
+	Node p;
+	setMinOfPathMask(pathMask, path, p, zpower);
+	vector< Node > prePath, newPath;
+
+	if( path.size() >=  3 )
+	{
+		printPath( path );
+		prePath.assign( path.end()-3, path.end() );
+		prePath.erase( prePath.end()-2 );
+
+		newPath.assign( path.end()-3, path.end() );
+
+		/*if( cost(newPath, zpower) > cost(prePath, zpower) )
+		{
+			path.erase( path.end()-2 );
+			printPath( path );
+		}
+		else
+		{*/
+			for(int i=path.size(); p.first != path[ path.size()-1 ].first && p.second != path[ path.size()-1 ].second; i++)
+			{		
+				if( path.size() != i ) break;
+				
+				setMinOfPathMask(pathMask, path, p);	
+
+				if( path.size() >=  4 )
+				{					
+					prePath.assign( path.end()-4, path.end() );
+					prePath.erase( prePath.end()-2 );
+					//prePath.insert( prePath.end()-1, p );
+
+					newPath.assign( path.end()-4, path.end() );
+					//newPath.erase( newPath.end()-3 );
+					//newPath[ newPath.size() - 2 ] = p;
+
+					/*if( cost(newPath, zpower) > cost(prePath, zpower) )
+					{
+						path.erase( path.end()-2 );
+						break;
+					}*/		
+					
+				}
+
+				//printPath( path );
+
+			}
+		/*}*/
+	}
+
+	/*if( cost(path) > costMax )
+	{
+		path = initialPath;
+	}*/
+}
+
+void generateCarve(const vector<GLfloat> &src)
+{
+	string dataS,queryS;
+	int height = winHeight - boundary*2;
+	int width = src.size() / height;
+
+	char buffer [10];
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			if( !bgMask[ i*height + j ] )
+			{
+				if( cvGetReal2D(sample, height - 1 - j, i) != 0 )
+				{
+					dataS += itoa(j, buffer, 10);
+					dataS += " ";
+					dataS += itoa(i, buffer, 10);
+					dataS += "\n";
+
+					queryS += itoa(j, buffer, 10);
+					queryS += " ";
+					queryS += itoa(i, buffer, 10);
+					queryS += "\n";
+				}
+			}
+		}
+	}
+
+	istringstream dataIs(dataS);
+	dataIn = &dataIs;
+	istringstream queryIs(queryS);
+	queryIn = &queryIs;
+
+	int					nPts;					// actual number of data points
+	ANNpointArray		dataPts;				// data points
+	ANNpoint			queryPt;				// query point
+	ANNidxArray			nnIdx;					// near neighbor indices
+	ANNdistArray		dists;					// near neighbor distances
+	ANNkd_tree*			kdTree;					// search structure
+
+	//getArgs(argc, argv);						// read command-line arguments
+
+	queryPt = annAllocPt(dim);					// allocate query point
+	maxPts = width * height;
+	dataPts = annAllocPts(maxPts, dim);			// allocate data points
+	nnIdx = new ANNidx[k];						// allocate near neigh indices
+	dists = new ANNdist[k];						// allocate near neighbor dists
+
+	nPts = 0;									// read data points
+	
+
+	IplImage *pathImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 3);
+	IplImage *r = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	IplImage *g = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	IplImage *b = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	cvCopy(sample, r);
+	cvCopy(sample, g);
+	cvCopy(sample, b);
+
+	//cout << "Data Points:\n";
+	while (nPts < maxPts && readPt(*dataIn, dataPts[nPts])) {
+		//printPt(cout, dataPts[nPts]);
+		nPts++;
+	}
+	cout << "Points: " << nPts << endl;
+
+	vector< pair< Node, Node > > connectedList;
+	
+	kdTree = new ANNkd_tree(					// build search structure
+					dataPts,					// the data points
+					nPts,						// number of points
+					dim);						// dimension of space
+
+	while (readPt(*queryIn, queryPt)) {			// read query points
+		//cout << "Query point: ";				// echo query point
+		//printPt(cout, queryPt);
+
+		kdTree->annkSearch(						// search
+				queryPt,						// query point
+				2,								// number of near neighbors
+				nnIdx,							// nearest neighbors (returned)
+				dists,							// distance (returned)
+				eps);							// error bound
+
+		//cout << "\tNN:\tIndex\tDistance\n";
+		//for (int i = 0; i < k; i++) {			// print summary
+		//	dists[i] = sqrt(dists[i]);			// unsquare distance
+		//	cout << "\t" << i << "\t" << dataPts[ nnIdx[i] ][0] << "\t" << dists[i] << "\n";
+		//}
+
+		//cout << "\tNN:\tIndex\tDistance\n";
+		Node initial = Node( queryPt[1], queryPt[0] );
+		Node final = Node( dataPts[ nnIdx[1] ][1], dataPts[ nnIdx[1] ][0] );
+
+		bool connected = false;
+		for(int i=0; i < connectedList.size(); i++)
+		{
+			if( final == connectedList[i].first || initial == connectedList[i].second || initial == connectedList[i].first || final == connectedList[i].second)
+			{
+				connected = true;
+				break;
+			}
+		}	
+
+		if( !connected )
+		{
+			vector< Node> path;
+			path.push_back( initial );
+			path.push_back( final );
+			findPath( path, 0 );
+
+			for(int i=0; i < path.size()-1; i++)
+			{
+				//cvSetReal2D( r, height - 1 - path[i].second, path[i].first, 255);
+				cvLine( r, cvPoint( path[i].first, height - 1 - path[i].second ), cvPoint( path[i+1].first, height - 1 - path[i+1].second ), cvScalarAll(255) );
+			}
+
+			connectedList.push_back( pair< Node, Node >(initial, final) );
+		}	
+
+	}
+
+	cvMerge(b, g, r, 0, pathImg);
+	cvNamedWindow("Carve Path", 1);
+	cvShowImage("Carve Path", pathImg);
 
 	delete [] nnIdx;							// clean things up
 	delete [] dists;
@@ -2719,34 +3096,34 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sa
 
 	vector<GLfloat> carve;
 	carve.resize(src.size(), 0);
-	knninterpolation(dst, dst, carve);
+	//knninterpolation(dst, dst, carve);
 
-	GLfloat carveMax = 0;
-	for(int i=0; i< srcHeight; i++)
-	{
-		for(int j=0; j< srcHeight; j++)
-		{
-			//if( !bgMask[ i*height + j ] )
-			//{
-				if( carve[ i*srcHeight + j ] > carveMax ) carveMax = carve[ i*srcHeight + j ];
-			//}
-		}
-	}
+	//GLfloat carveMax = 0;
+	//for(int i=0; i< srcHeight; i++)
+	//{
+	//	for(int j=0; j< srcHeight; j++)
+	//	{
+	//		//if( !bgMask[ i*height + j ] )
+	//		//{
+	//			if( carve[ i*srcHeight + j ] > carveMax ) carveMax = carve[ i*srcHeight + j ];
+	//		//}
+	//	}
+	//}
 
-	for(int i=0; i< srcHeight; i++)
-	{
-		for(int j=0; j< srcHeight; j++)
-		{
-			if( !bgMask[ i*srcHeight + j ] )
-			{
-				dst[ i*srcHeight + j ] -= carve[ i*srcHeight + j ] *0.5 / carveMax;
-			}
-		}
-	}
+	//for(int i=0; i< srcHeight; i++)
+	//{
+	//	for(int j=0; j< srcHeight; j++)
+	//	{
+	//		if( !bgMask[ i*srcHeight + j ] )
+	//		{
+	//			dst[ i*srcHeight + j ] -= carve[ i*srcHeight + j ] *0.5 / carveMax;
+	//		}
+	//	}
+	//}
 	
 }
 
-void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing = 1, IplImage *mask=NULL, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
+void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing = 1, IplImage *mask=NULL, IplImage *gradient=NULL, int aperture=33, int srcHeight=0, bool ratioOn=true)
 {	
 	if(srcHeight)
 	{}
@@ -2763,7 +3140,7 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 		Image2Relief(gradient, weight);
 	}
 
-	int ext = (aperture-1) / 2;
+	
 	/*if( gradient != NULL)
 	{
 		gradientWeight(weight, ext, srcWidth);
@@ -2779,7 +3156,9 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 		subedge = cvCreateImage( cvSize(subedge->width/2, subedge->height/2), IPL_DEPTH_8U, 1);
 		cvCopy(temp, subedge);
 	}*/
-	
+
+	int ext = (aperture-1) / 2;
+	int extU, extD, extL, extR;
 	
 	for(int i=spacing/2; i< srcWidth; i+=spacing)
 	{
@@ -2802,6 +3181,9 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 					hist[k] =0;
 				}
 				
+				//extractOutline(src, outlineMask, srcHeight, 1);
+				bool distribute = true, broken = false;
+				
 				if( src[ i*srcHeight + j ] == 0 )
 				{
 					dst[ i*srcHeight + j ] = 0;
@@ -2809,25 +3191,58 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 
 				else
 				{
-					int extU = -ext,extD = ext,extL = -ext,extR = ext;
-					
-						if( ext > j)		extL = -j;
-						if( ext > i)		extU = -i;
-						if( j+ext >= srcHeight)		extR = srcHeight - 1 - j;
-						if( i+ext >= srcHeight)		extD = srcHeight - 1 - i;					
+					int countAll = 0, countOutline = 0, countFG = 0;
+					//for( ext=(aperture-1) / 2; ext >=16; ext /= 2 )
+					//{
+					//
+						extU = -ext; extD = ext; extL = -ext; extR = ext;
+						
+							if( ext > j)		extL = -j;
+							if( ext > i)		extU = -i;
+							if( j+ext >= srcHeight)		extR = srcHeight - 1 - j;
+							if( i+ext >= srcHeight)		extD = srcHeight - 1 - i;					
+
+					//	for(int p=extU; p <= extD && !broken; p++)
+					//	{
+					//		//#pragma omp parallel for
+					//		for(int q=extL; q <= extR; q++)
+					//		{
+					//			if( outlineMask[ (i+p)*srcHeight + j+q ] )
+					//			{									
+					//				if(ext <= 16)
+					//				{
+					//					distribute = false;
+					//				}
+					//				broken = true;
+					//				break;
+					//			}
+
+					//		}
+					//	}
+					//}
 
 					for(int p=extU; p <= extD; p++)
 					{
 							//#pragma omp parallel for
 							for(int q=extL; q <= extR; q++)
 							{
-								if( gradient == NULL)
+								countAll++;
+								if( src[ (i+p)*srcHeight + j+q ] )
 								{
-									hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += 1;
-								}
-								else
-								{
-									hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += weight[ (i+p)*srcHeight + j+q ] * distanceWeight(i, j, i+p, j+q, ext);;
+									countFG++;
+									/*if( outlineMask[ (i+p)*srcHeight + j+q ] )
+									{
+										countOutline++;
+									}*/
+									
+									if( gradient == NULL)
+									{
+										hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += 1;
+									}
+									else
+									{
+										hist [ (int) (src.at( (i+p)*srcHeight + j+q)  *HistogramBins) ] += weight[ (i+p)*srcHeight + j+q ] * distanceWeight(i, j, i+p, j+q, ext);;
+									}
 								}
 							}
 					}
@@ -2837,11 +3252,75 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 					{
 						cumulative += hist[bin];
 					}
+
+
+					static int isHist;
+					int histMax=0;
+					if( isHist == 1920 )
+					{						
+						histImage1 = cvCreateImage( cvSize(500, 500), IPL_DEPTH_8U, 1);
+						histImage2 = cvCreateImage( cvSize(500, 500), IPL_DEPTH_8U, 1);
+						cvSet( histImage1, cvScalar(208) );
+						cvSet( histImage2, cvScalar(208) );
+
+						for(int i=0; i < HistogramBins; i++)
+						{
+							//hist[i] = bucket[i].size();
+							if(hist[i] > histMax)	histMax = hist[i];
+						}	
+						
+						int bin_w = cvRound((double)histImage1->width/HistogramBins);
+
+						for(int i=0; i < HistogramBins; i++)
+						{
+							//int value = 255 - (double)(hist[i]*255)/histMax;
+							//cvSetReal2D(histImage, i, isHist, 255 - (double)(hist[i]*255)/histMax);
+							cvRectangle( histImage1, cvPoint(i*bin_w, histImage1->height),
+																					cvPoint((i+1)*bin_w, 
+																					histImage1->height*( 1 - hist[i]/histMax*0.9 ) ),
+												cvScalarAll(0), -1, 8, 0 );
+						}
+
+						cvNamedWindow("histogram before", 1);
+						cvShowImage("histogram before", histImage1);
+						
+					}
 					
 					/*float test[6] = {0, 50, 100, 200, 150, 100};
 					redistribute(test, 600, 1);*/
-					//clipping(hist, cumulative, scalingFactor*HistogramBins/10000);
-					redistribute(hist, cumulative, scalingFactor*HistogramBins/10000);
+					
+					if( ratioOn )
+					{
+						float ratio = (float) countFG / countAll;
+						redistribute(hist, cumulative, scalingFactor, ratio);
+						//clipping(hist, cumulative, scalingFactor*HistogramBins/10000);
+					}
+					else
+					{
+						redistribute(hist, cumulative, scalingFactor);
+						//clipping(hist, cumulative, scalingFactor*HistogramBins/10000);
+					}
+
+					if( isHist == 1920 )
+					{
+						
+						int bin_w = cvRound((double)histImage2->width/HistogramBins);
+
+						for(int i=0; i < HistogramBins; i++)
+						{
+							//int value = 255 - (double)(hist[i]*255)/histMax;
+							//cvSetReal2D(histImage, i, isHist, 255 - (double)(hist[i]*255)/histMax);
+							cvRectangle( histImage2, cvPoint(i*bin_w, histImage2->height),
+																				   cvPoint((i+1)*bin_w, 
+																				   histImage2->height*( 1 - hist[i]/histMax*0.9) ) ,
+												cvScalarAll(0), -1, 8, 0 );
+						}
+
+						cvNamedWindow("histogram after", 1);
+						cvShowImage("histogram after", histImage2);
+						
+					}
+					isHist++;
 
 					float sum[ HistogramBins+1 ];
 			
@@ -2882,27 +3361,52 @@ void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, int spacing 
 
 		}
 	}
+
+	if( spacing !=1 )
+	{
 	
-	IplImage *srcImg = cvCreateImage( cvSize(gradient->width/spacing, gradient->height/spacing), IPL_DEPTH_32F, 1);
+		IplImage *srcImg = cvCreateImage( cvSize(gradient->width/spacing, gradient->height/spacing), IPL_DEPTH_32F, 1);
 
-	for(int i=0; i< srcWidth/spacing; i++)
-	{
-		for(int j=0; j< srcHeight/spacing; j++)
+		for(int i=0; i< srcWidth/spacing; i++)
 		{
-			cvSetReal2D(srcImg, srcHeight/spacing - 1 - j, i, dst[ (int)((i+0.5)*spacing)*srcHeight + (int)((j+0.5)*spacing) ] );
+			for(int j=0; j< srcHeight/spacing; j++)
+			{
+				cvSetReal2D(srcImg, srcHeight/spacing - 1 - j, i, dst[ (int)((i+0.5)*spacing)*srcHeight + (int)((j+0.5)*spacing) ] );
+			}
 		}
-	}
 
-	/*****	interpolation	*****/
-	for(int i=1; i <= (int) log2( (double)spacing ); i++)
-	{
-		IplImage *dstImg = cvCreateImage( cvSize(srcImg->width*2, srcImg->height*2), IPL_DEPTH_32F, 1);
-		cvPyrUp(srcImg, dstImg);
-		srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
-		cvCopy(dstImg, srcImg);
+		/*****	interpolation	*****/
+		for(int i=1; i <= (int) log2( (double)spacing ); i++)
+		{
+			IplImage *dstImg = cvCreateImage( cvSize(srcImg->width*2, srcImg->height*2), IPL_DEPTH_32F, 1);
+			cvPyrUp(srcImg, dstImg);
+			srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+			cvCopy(dstImg, srcImg);
+		}
+		Image2Relief(srcImg, dst);
+		/*****	interpolation	*****/
 	}
-	Image2Relief(srcImg, dst);
-	/*****	interpolation	*****/
+	
+	//if( isHist == 1920 )
+	//{
+	//	
+	//	int bin_w = cvRound((double)histImage3->width/HistogramBins);
+
+	//	for(int i=0; i < HistogramBins; i++)
+	//	{
+	//		//int value = 255 - (double)(hist[i]*255)/histMax;
+	//		//cvSetReal2D(histImage, i, isHist, 255 - (double)(hist[i]*255)/histMax);
+	//		cvRectangle( histImage3, cvPoint(i*bin_w, histImage3->height),
+	//															   cvPoint((i+1)*bin_w, 
+	//															   histImage3->height*( 1 - hist[i]/histMax*0.9) ) ,
+	//							cvScalarAll(0), -1, 8, 0 );
+	//	}
+
+	//	cvNamedWindow("histogram final", 1);
+	//	cvShowImage("histogram final", histImage3);
+	//	
+	//}
+	//isHist++;
 	
 	/*for(int i=0; i< srcHeight; i++)
 	{
@@ -3019,7 +3523,8 @@ void DrawRelief(const vector<GLfloat> &src, GLdouble *pThreadRelief, GLdouble *p
 							reliefProfile.push_back( src[height/2 + i*height] );
 						}*/
 						reliefProfile.push_back( ( src[ floor( (height-1)/2.0 ) + i*height ] + src[ ceil( (height-1)/2.0 ) + i*height ] ) / 2 );
-						
+						//reliefProfile.push_back( ( src[ floor( (width-1)*3/4.0 )*height + i ] + src[ ceil( (width-1)*3/4.0 )*height + i ] ) / 2 );
+
 						for(int j=0; j < height - 1; j++)
 						{
 							glBegin(GL_TRIANGLES);
@@ -3040,9 +3545,9 @@ void DrawRelief(const vector<GLfloat> &src, GLdouble *pThreadRelief, GLdouble *p
 
 					char *name;
 					static int id;
-					IplImage *profileImg = cvCreateImage( cvSize( width, height*2 ), IPL_DEPTH_8U, 1);
+					IplImage *profileImg = cvCreateImage( cvSize( width, height ), IPL_DEPTH_8U, 1);
 					cvSet( profileImg, cvScalar(208) );
-					DrawProfile(reliefProfile, profileImg);
+					DrawProfile(reliefProfile, profileImg, 0.9);
 					int c = _snprintf( NULL, 0, "Relief Profile %d", id+1 );
 					name = new char[ c + 1 ];
 					_snprintf(name, c+1, "Relief Profile %d", id+1);
@@ -3794,7 +4299,162 @@ void linearCompressedBase(void)
 		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
 }
 
-void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gradientY, int level=0, float weight=0.5)
+//void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gradientY, int level=0, float weight=0.5)
+//{	
+//	
+//	/*OpenglLine(0, 0, 0, 3, 0, 0);
+//	glColor3f(0, 1, 0);
+//	OpenglLine(0, 0, 0, 0, 3, 0);
+//	glColor3f(0, 0, 1);
+//	OpenglLine(0, 0, 0, 0, 0, 3);*/ 
+//		
+//		
+//		//GLfloat maxDepth=0,minDepth=1;
+//		float maxHeight=0, minHeight=HistogramBins;
+//		/*if(relief2)
+//		{*/
+//			IplImage *gradX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+//			IplImage *gradY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
+//			cvConvertScale(gradientX, gradX, 1, 0);
+//			cvConvertScale(gradientY, gradY, 1, 0);
+//			cvPow(gradX, gradX, 2);
+//			cvPow(gradY, gradY, 2);
+//
+//			IplImage *gradient = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+//			cvAdd(gradX, gradY, gradient);
+//			cvPow(gradient, gradient, 0.5);		
+//
+//			IplImage *outlineImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
+//			extractOutline(img0, outlineImg, 1);
+//			bgFilter(gradient, outlineImg);
+//
+//			IplImage *bgImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
+//			Relief2Image( bgMask, bgImg, winHeight - boundary*2);
+//			bgFilter(gradient, bgImg);
+//			
+//			int size = src.size();
+//			vector<GLfloat> AHEHeight;
+//			AHEHeight.resize(size);
+//			compressedH.resize(size);
+//			for(int i=0; i < size; i++)
+//			{
+//				compressedH[i] = 0;
+//			}
+//
+//			int n=1;
+//			//#pragma omp parallel for private(AHEHeight)
+//			/*for(int k=1; k <= n; k++)
+//			{
+//				equalizeHist(sampleHeight, AHEHeight, gradient, pow(2.0, k-1) * 8*2/pow(2.0, level) + 1);
+//				vectorAdd(referenceHeight, AHEHeight, referenceHeight);
+//				AHEHeight.clear();
+//			}
+//			Relief2Image(sampleHeight, srcImg);
+//
+//			for(int i=1;i <= level;i++)
+//			{
+//				IplImage *dstImg = cvCreateImage( cvSize(srcImg->width*2, srcImg->height*2), IPL_DEPTH_32F, 1);
+//				cvPyrUp(srcImg, dstImg);
+//				srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+//				cvCopy(dstImg, srcImg);
+//			}
+//			Image2Relief(srcImg, referenceHeight);*/
+//
+//			int height = (winHeight - boundary*2) /*/ pow(2.0, pyrLevel - 1)*/;
+//			int width = heightPyr[0].size() / height;
+//
+//			IplImage *white = cvCreateImage( cvSize( width,  height), IPL_DEPTH_8U, 1);
+//			cvSet(white, cvScalar(255));
+//			
+//			for(int k=1; k <= n; k++)
+//			{
+//				equalizeHist(src, AHEHeight, white, gradient, pow(2.0, k-1) * ahe_m *2 + 1, height);
+//				vectorAdd(compressedH, AHEHeight, compressedH);
+//				AHEHeight.clear();
+//			}
+//			vectorScale(compressedH, compressedH, 1.0/n);
+//			
+//			if(weight != 1)
+//			{
+//				IplImage *img, *img2, *imgGa;
+//				
+//				int divisor = pow(2.0, pyrLevel - 2);
+//				img = cvCreateImage( cvSize( width/divisor,  height/divisor), IPL_DEPTH_32F, 1);
+//				/*****	laplacian layer	*****/			
+//				IplImage *imgLa = cvCreateImage( cvSize( width/divisor,  height/divisor), IPL_DEPTH_32F, 1);	
+//				Relief2Image(laplaceList.at( pyrLevel - 2), imgLa, (winHeight - boundary*2)/divisor);
+//				
+//				//cvAdd(imgGa, imgLa, img);
+//				cvCopy(imgLa, img);
+//				for(int i=pyrLevel - 2; i > 0; i--)
+//				{
+//					width = imgPyr[i]->width;
+//					height = imgPyr[i]->width;
+//					//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
+//					img2 = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
+//					cvSetZero(img2);
+//					imgLa = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
+//
+//					cvPyrUp(img, img2);	//upsample the smallest laplace
+//					Relief2Image(laplaceList.at(i-1), imgLa, (winHeight - boundary*2)/pow(2.0, i-1));
+//
+//					img = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
+//					cvAdd(img2, imgLa, img);
+//					//cvCopy(img2, img);
+//					/*Image2Relief(img2, compressedH);
+//					reliefAdd( *compressedH, laplaceList.at(i) );*/
+//					img2 = cvCreateImage( cvGetSize( img ), IPL_DEPTH_8U, 1);
+//					cvConvertScaleAbs(img, img2, 128, 128);
+//					char a[15];
+//					sprintf(a,"%d", i);
+//					cvNamedWindow(a, 1);
+//					cvShowImage(a, img2);
+//				}
+//				/*****	laplacian layer	*****/
+//
+//				imgGa = cvCreateImage( cvGetSize( img ), IPL_DEPTH_32F, 1);
+//				Relief2Image(compressedH, imgGa, winHeight - boundary*2);
+//
+//				double baseMin, baseMax, detailMin, detailMax;
+//				cvMinMaxLoc(imgGa, &baseMin, &baseMax);
+//				cvMinMaxLoc(img, &detailMin, &detailMax);
+//				cvConvertScale(imgGa, imgGa, weight*(baseMax+detailMax) / baseMax );
+//				cvConvertScale(img, img, (1 - weight)*(baseMax+detailMax) / detailMax );
+//
+//				cvAdd(img, imgGa, img);
+//				Image2Relief(img, compressedH);
+//			}
+//
+//			bgFilter(compressedH, bgMask, winHeight - boundary*2);
+//
+//			for(int i=0; i < compressedH.size(); i++)
+//			{
+//				float height = compressedH[i];
+//				if( maxHeight < height )
+//				{
+//					maxHeight = height;
+//				}
+//				if( minHeight > height && height !=0 )
+//				{
+//					minHeight = height;
+//				}
+//			}
+//			float range = maxHeight - minHeight;
+//			for(int i=0; i < compressedH.size(); i++)
+//			{
+//				compressedH[i] /= range;
+//			}
+//
+//			BuildRelief(compressedH, pThreadRelief, pThreadNormal);
+//			
+//			relief1 = false;
+//			mesh1 = true;
+//			profile1 = true;
+//		//}
+//		//swScaled(MODELSCALE, MODELSCALE, MODELSCALE);
+//}
+
+void histogramBase(const vector<GLfloat> &src, IplImage *weightX, IplImage *weightY, int level=0, IplImage *mask=NULL)
 {	
 	
 	/*OpenglLine(0, 0, 0, 3, 0, 0);
@@ -3808,24 +4468,145 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 		float maxHeight=0, minHeight=HistogramBins;
 		/*if(relief2)
 		{*/
-			IplImage *gradX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
-			IplImage *gradY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
-			cvConvertScale(gradientX, gradX, 1, 0);
-			cvConvertScale(gradientY, gradY, 1, 0);
+			IplImage *wX = cvCreateImage( cvGetSize(weightX), IPL_DEPTH_64F, 1);
+			IplImage *wY = cvCreateImage( cvGetSize(weightY), IPL_DEPTH_64F, 1);
+			cvConvertScale(weightX, wX, 1, 0);
+			cvConvertScale(weightY, wY, 1, 0);
+			cvPow(wX, wX, 2);
+			cvPow(wY, wY, 2);
+
+			IplImage *weight = cvCreateImage( cvGetSize(weightX), IPL_DEPTH_64F, 1);
+			cvAdd(wX, wY, weight);
+			cvPow(weight, weight, 0.5);
+
+			IplImage *img = cvCreateImage( cvSize(img0->width, img0->height), IPL_DEPTH_32F, 1);
+			cvCopy(img0, img);
+			/*for(int i=1;i <=level; i++)
+			{
+				IplImage *dstImg = cvCreateImage( cvSize(img->width/2, img->height/2), IPL_DEPTH_32F, 1);
+				cvPyrDown(img, dstImg);
+				img = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+				cvCopy(dstImg, img);
+			}*/
+
+			IplImage *outlineImg = cvCreateImage( cvGetSize(img), IPL_DEPTH_32F, 1);
+			extractOutline(img, outlineImg, 1);
+			bgFilter(weight, outlineImg);
+
+			IplImage *bgImg = cvCreateImage( cvGetSize(img), IPL_DEPTH_8U, 1);
+			IplImage *zeroImg = cvCreateImage( cvGetSize(img), IPL_DEPTH_32F, 1);
+			cvSetZero(zeroImg);
+			cvCmp(img, zeroImg, bgImg, CV_CMP_EQ);
+			bgFilter(weight, bgImg);
+
+		//	disp++;
+		//	height.clear();
+		//	
+		//	for(int i=boundary; i<winWidth*0.5 - boundary; i++)
+		//	{
+		//		for(int j=boundary; j<winHeight - boundary; j++)
+		//		{
+		//			GLfloat depth;
+		//			glReadPixels(i, j, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+
+		//			if( maxDepth < depth && depth !=1)
+		//			{
+		//				maxDepth = depth;
+		//			}
+		//			if( minDepth > depth)
+		//			{
+		//				minDepth = depth;
+		//			}
+		//			height.push_back(depth);
+		//			
+		//		}
+		//	}
+		//	int enhance = 50;
+		//	double maxDepthPrime = compress(maxDepth*enhance, 5, 5);
+		//	double minDepthPrime = compress(minDepth*enhance, 5, 5);
+
+		//	for(int i=0; i<height.size(); i++)
+		//	{			
+		//		if ( height.at(i) == 1 )	//infinite point
+		//		{
+		//			height.at(i) = 0;
+		//		}
+		//		else
+		//		{
+		//			height.at(i) = compress(height.at(i)*enhance, 5, 5);
+		//			height.at(i) = maxDepthPrime - height.at(i);
+		//			//height.at(i) = maxDepth - height.at(i);	//transfer depth to height
+		//			height.at(i) /= (maxDepthPrime - minDepthPrime );	//normalize to [0,1]
+		//		}
+		//	}
+			//for(int i=0; i<height.size(); i++)
+			//{
+			//	if ( height.at(i) == 1 )	//infinite point
+			//	{
+			//		height.at(i) = 0;
+			//	}
+			//	else
+			//	{
+			//		height.at(i) = ( height.at(i) - minDepth ) / (maxDepth - minDepth) ;	//normalize to [0,1]
+			//		height.at(i) = 1 - height.at(i);	//transfer depth to height
+			//	}
+			//}
+
+			/*IplImage *srcImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
+			cvCopy(img0, srcImg);
+
+			int level = 2;
+			for(int i=1;i <= level;i++)
+			{
+				IplImage *dstImg = cvCreateImage( cvSize(srcImg->width/2, srcImg->height/2), IPL_DEPTH_32F, 1);
+				cvPyrDown(srcImg, dstImg);
+				srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+				cvCopy(dstImg, srcImg);
+			}
+			vector<GLfloat> sampleHeight;
+			Image2Relief(srcImg, sampleHeight);
+
+			IplImage *Img =  cvCreateImage( cvGetSize(srcImg),  IPL_DEPTH_8U, 1);
+			cvConvertScaleAbs(srcImg, Img, 255, 0);
+
+			IplImage *sampleX =  cvCreateImage( cvGetSize(srcImg),  IPL_DEPTH_16S, 1);
+			IplImage *sampleY =  cvCreateImage( cvGetSize(srcImg),  IPL_DEPTH_16S, 1);
+			cvSobel( Img, sampleX, 1, 0);
+			cvSobel( Img, sampleY, 0, 1);
+
+			IplImage *gradX = cvCreateImage( cvGetSize(srcImg), IPL_DEPTH_64F, 1);
+			IplImage *gradY = cvCreateImage( cvGetSize(srcImg), IPL_DEPTH_64F, 1);
+			cvConvertScale(sampleX, gradX, 1, 0);
+			cvConvertScale(sampleY, gradY, 1, 0);
 			cvPow(gradX, gradX, 2);
 			cvPow(gradY, gradY, 2);
 
-			IplImage *gradient = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+			IplImage *gradient = cvCreateImage( cvGetSize(srcImg), IPL_DEPTH_64F, 1);
 			cvAdd(gradX, gradY, gradient);
-			cvPow(gradient, gradient, 0.5);		
+			cvPow(gradient, gradient, 0.5);
 
-			IplImage *outlineImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
-			extractOutline(img0, outlineImg, 1);
+			IplImage *outlineImg = cvCreateImage( cvGetSize(srcImg), IPL_DEPTH_32F, 1);
+			IplImage *bgImg = cvCreateImage( cvGetSize(srcImg), IPL_DEPTH_32F, 1);
+
+			extractOutline(srcImg, outlineImg, 1);
 			bgFilter(gradient, outlineImg);
 
-			IplImage *bgImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
-			Relief2Image( bgMask, bgImg, winHeight - boundary*2);
-			bgFilter(gradient, bgImg);
+			int height = srcImg->height;
+			for(int i=0; i < srcImg->width; i++)
+			{
+				for(int j=0; j < height; j++)
+				{
+					if( sampleHeight[ i*height + j ] )
+					{
+						cvSetReal2D( bgImg, height - 1 - j, i, 1 );
+					}
+					else
+					{
+						cvSetReal2D( bgImg, height - 1 - j, i, 0 );
+					}
+				}
+			}
+			bgFilter(gradient, bgImg);*/
 			
 			int size = src.size();
 			vector<GLfloat> AHEHeight;
@@ -3854,65 +4635,91 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 				cvCopy(dstImg, srcImg);
 			}
 			Image2Relief(srcImg, referenceHeight);*/
+			
 
-			int height = (winHeight - boundary*2) /*/ pow(2.0, pyrLevel - 1)*/;
-			int width = heightPyr[0].size() / height;
-
-			for(int k=1; k <= n; k++)
+			if(level)
 			{
-				equalizeHist(src, AHEHeight, pow(2.0, level), NULL, gradient, pow(2.0, k-1) * ahe_m *2 + 1, height);
-				vectorAdd(compressedH, AHEHeight, compressedH);
-				AHEHeight.clear();
+				//int side = sqrt( (float)size );
+				int height = (winHeight - boundary*2)/*/pow(2.0, level)*/;
+				int width = size/height;
+				
+				for(int k=1; k <= n; k++)
+				{
+					equalizeHist(src, AHEHeight, pow(2.0, level), NULL, weight, pow(2.0, k-1) * ahe_m*2 + 1, height, 0);
+					vectorAdd(compressedH, AHEHeight, compressedH);
+					AHEHeight.clear();
+					AHEHeight.resize(size, 0);
+				}
+				vectorScale(compressedH, compressedH, 1.0/n);
+				
+				
+				/*IplImage *srcImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
+				Relief2Image(referenceHeight, srcImg, height);
+
+				for(int i=1;i <=level; i++)
+				{
+					IplImage *dstImg = cvCreateImage( cvSize(srcImg->width*2, srcImg->height*2), IPL_DEPTH_32F, 1);
+					cvPyrUp(srcImg, dstImg);
+					srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
+					cvCopy(dstImg, srcImg);
+				}*/
+
+				vector<GLfloat> knn, carve;
+				
+				/*Image2Relief(srcImg, referenceHeight);*/
+				Image2Relief(sample, knn);
+				IplImage *sampleL = cvCreateImage( cvGetSize(sample), IPL_DEPTH_8U, 1);
+				cvConvertScale(ImageL, sampleL, -1, 255);
+
+				//cvOr(sample, sampleL, sample);
+				
+				cvNamedWindow("Sample & Line", 1);
+				cvShowImage("Sample & Line", sample);
+			
+				carve.resize(compressedH.size(), 0);
+				//knn.resize(compressedH.size(), 0);
+				knninterpolation( heightPyr[0], carve);
+
+				height = winHeight - boundary*2;
+				width = heightPyr[0].size() / height;
+				//GLfloat carveMax = 0;
+				//for(int i=0; i< width; i++)
+				//{
+				//	for(int j=0; j< height; j++)
+				//	{
+				//		//if( !bgMask[ i*height + j ] )
+				//		//{
+				//			if( carve[ i*height + j ] > carveMax ) carveMax = carve[ i*height + j ];
+				//		//}
+				//	}
+				//}
+
+				//if(carveMax)
+				//{
+				//	for(int i=0; i< width; i++)
+				//	{
+				//		for(int j=0; j< height; j++)
+				//		{
+				//			if( !bgMask[ i*height + j ] )
+				//			{
+				//				compressedH[ i*height + j ] -= carve[ i*height + j ] *0.05 / carveMax;
+				//			}
+				//		}
+				//	}
+				//}
+
 			}
-			vectorScale(compressedH, compressedH, 1.0/n);
-			
-			IplImage *img, *img2, *imgGa;
-			
-			int divisor = pow(2.0, pyrLevel - 2);
-			img = cvCreateImage( cvSize( width/divisor,  height/divisor), IPL_DEPTH_32F, 1);
-			/*****	laplacian layer	*****/			
-			IplImage *imgLa = cvCreateImage( cvSize( width/divisor,  height/divisor), IPL_DEPTH_32F, 1);	
-			Relief2Image(laplaceList.at( pyrLevel - 2), imgLa, (winHeight - boundary*2)/divisor);
-			
-			//cvAdd(imgGa, imgLa, img);
-			cvCopy(imgLa, img);
-			for(int i=pyrLevel - 2; i > 0; i--)
+			else
 			{
-				width = imgPyr[i]->width;
-				height = imgPyr[i]->width;
-				//img = cvCreateImage( cvSize( width,  width), IPL_DEPTH_32F, 1);
-				img2 = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
-				cvSetZero(img2);
-				imgLa = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
-
-				cvPyrUp(img, img2);	//upsample the smallest laplace
-				Relief2Image(laplaceList.at(i-1), imgLa, (winHeight - boundary*2)/pow(2.0, i-1));
-
-				img = cvCreateImage( cvSize( width*2,  height*2), IPL_DEPTH_32F, 1);
-				cvAdd(img2, imgLa, img);
-				//cvCopy(img2, img);
-				/*Image2Relief(img2, compressedH);
-				reliefAdd( *compressedH, laplaceList.at(i) );*/
-				img2 = cvCreateImage( cvGetSize( img ), IPL_DEPTH_8U, 1);
-				cvConvertScaleAbs(img, img2, 128, 128);
-				char a[15];
-				sprintf(a,"%d", i);
-				cvNamedWindow(a, 1);
-				cvShowImage(a, img2);
+					for(int k=1; k <= n; k++)
+					{
+						equalizeHist(src, AHEHeight, 1, 0 /*, pow(2.0, pyrLevel-1)*/, weight, pow(2.0, k-1) * ahe_m*2 + 1, winHeight - boundary*2, 0);
+						vectorAdd(compressedH, AHEHeight, compressedH);
+						AHEHeight.clear();
+						AHEHeight.resize(size, 0);
+					}
+					vectorScale(compressedH, compressedH, 1.0/n);
 			}
-			/*****	laplacian layer	*****/
-
-			imgGa = cvCreateImage( cvGetSize( img ), IPL_DEPTH_32F, 1);
-			Relief2Image(compressedH, imgGa, winHeight - boundary*2);
-
-			double baseMin, baseMax, detailMin, detailMax;
-			cvMinMaxLoc(imgGa, &baseMin, &baseMax);
-			cvMinMaxLoc(img, &detailMin, &detailMax);
-			cvConvertScale(imgGa, imgGa, weight*(baseMax+detailMax) / baseMax );
-			cvConvertScale(img, img, (1 - weight)*(baseMax+detailMax) / detailMax );
-
-			cvAdd(img, imgGa, img);
-			Image2Relief(img, compressedH);
 
 			bgFilter(compressedH, bgMask, winHeight - boundary*2);
 
@@ -3931,8 +4738,10 @@ void histogramBase(const vector<GLfloat> &src, IplImage *gradientX, IplImage *gr
 			float range = maxHeight - minHeight;
 			for(int i=0; i < compressedH.size(); i++)
 			{
-				compressedH[i] /= range;
+				compressedH[i] /= range/*/= HistogramBins*/;
 			}
+
+			generateCarve(compressedH);
 
 			BuildRelief(compressedH, pThreadRelief, pThreadNormal);
 			
@@ -4106,7 +4915,7 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 				referenceHeight[i] = 0;
 			}
 
-			int n=1;
+			int n=5;
 			//#pragma omp parallel for private(AHEHeight)
 			/*for(int k=1; k <= n; k++)
 			{
@@ -4134,7 +4943,7 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 				
 				for(int k=1; k <= n; k++)
 				{
-					equalizeHist(src, AHEHeight, pow(2.0, level), NULL, weight, pow(2.0, k-1) * ahe_m*2/ + 1, height);
+					equalizeHist(src, AHEHeight, pow(2.0, level), NULL, weight, pow(2.0, k-1) * ahe_m*2 + 1, height);
 					vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 					AHEHeight.clear();
 					AHEHeight.resize(size, 0);
@@ -4194,7 +5003,7 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 			{
 					for(int k=1; k <= n; k++)
 					{
-						equalizeHist(src, AHEHeight, 1, 0 /*, pow(2.0, pyrLevel-1)*/, weight, pow(2.0, k-1) * ahe_m*2 + 1, winHeight - boundary*2);
+						equalizeHist(src, AHEHeight, /*1*/pow(2.0, k-1), 0 /*, pow(2.0, pyrLevel-1)*/, weight, pow(2.0, k-1) * ahe_m*2 + 1, winHeight - boundary*2, 1);
 						vectorAdd(referenceHeight, AHEHeight, referenceHeight);
 						AHEHeight.clear();
 						AHEHeight.resize(size, 0);
@@ -5287,7 +6096,7 @@ bool GetClipDistance()
 			farPoint.n[0], farPoint.n[1], farPoint.n[2]);
 		CVector3 temp =  farPoint - nearPoint;
 
-		perspective[2] = abs(lookat[2] - nearPoint.n[2]);//-0.1*temp.Magnitude();
+		perspective[2] = abs(lookat[2] - nearPoint.n[2] - 0.01);//-0.1*temp.Magnitude();
 		perspective[3] = abs(lookat[2] - farPoint.n[2]);//+0.1*temp.Magnitude();;
 		printf("Near=%f, Far=%f\n\n", perspective[2], perspective[3]);
 		
@@ -5944,6 +6753,23 @@ void extractLine(IplImage *src, IplImage *dst, int interval, int linewidth)
 	}
 }
 
+
+
+void windowShowImage(char *name, IplImage *image)
+{
+	double min, max;
+	cvMinMaxLoc(image, &min, &max);
+	double scale = 255.0 / (max - min);   
+	double shift = min * scale;  
+	IplImage *show =  cvCreateImage( cvGetSize(image),  IPL_DEPTH_8U, 1);
+	cvConvertScaleAbs(show, show, scale, shift);
+
+	cvNamedWindow(name, 1);
+	cvShowImage(name, show);
+}
+
+
+
 void display(void)
 {
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
@@ -5970,9 +6796,12 @@ void display(void)
 	glDisable(GL_LIGHT3);
 	glDisable(GL_LIGHT4);
 
+	IplImage *gradientX,*gradientY;
+
 	if( !scene )
 	{
-		openglPath();
+		openglPath();	
+		
 	}
 	/*****     Partition 1     *****/
 	//we must disable the opengl's depth test, then the software depth test will work 
@@ -6024,9 +6853,386 @@ void display(void)
 				cvSobel( Image, gradientX, 1, 0);
 				cvSobel( Image, gradientY, 0, 1);
 
+				sample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				cvSetZero(sample);
+
+				IplImage *wX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+				IplImage *wY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
+				cvConvertScale(gradientX, wX, 1, 0);
+				cvConvertScale(gradientY, wY, 1, 0);
+				cvPow(wX, wX, 2);
+				cvPow(wY, wY, 2);
+
+				IplImage *weight = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+				cvAdd(wX, wY, weight);
+				cvPow(weight, weight, 0.5);
+				compress(weight, 10);
+		
+
+				IplImage *laplace =  cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
+				cvLaplace(Image, laplace);
+				//weight = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_8U, 1);
+				cvAbs(laplace, laplace);
+				compress(laplace, 2.24);
+
+				colorImg = cvCreateImage( cvSize(winWidth/3 - 2*boundary, winHeight - 2*boundary),  IPL_DEPTH_8U, 3);
+				IplImage *bImg = cvCreateImage( cvGetSize(colorImg),  IPL_DEPTH_8U, 1);
+				IplImage *gImg = cvCreateImage( cvGetSize(colorImg),  IPL_DEPTH_8U, 1);
+				IplImage *rImg = cvCreateImage( cvGetSize(colorImg),  IPL_DEPTH_8U, 1);
+
+				GLubyte *red = new GLubyte[winWidth/3*winHeight];
+				GLubyte *green = new GLubyte[winWidth/3*winHeight];
+				GLubyte *blue = new GLubyte[winWidth/3*winHeight];
+				glReadPixels(0, 0, winWidth/3, winHeight, GL_RED, GL_UNSIGNED_BYTE, red);
+				glReadPixels(0, 0, winWidth/3, winHeight, GL_GREEN, GL_UNSIGNED_BYTE, green);
+				glReadPixels(0, 0, winWidth/3, winHeight, GL_BLUE, GL_UNSIGNED_BYTE, blue);
+				
+				for(int i=boundary; i<winWidth/3 - boundary; i++)
+				{
+					for(int j=boundary; j<winHeight - boundary; j++)
+					{					
+						cvSetReal2D( bImg, winHeight - 1 - j - boundary, i - boundary, blue[ j*winWidth/3 + i ]);
+						cvSetReal2D( gImg, winHeight - 1 - j - boundary, i - boundary, green[ j*winWidth/3 + i ]);
+						cvSetReal2D( rImg, winHeight - 1 - j - boundary, i - boundary, red[ j*winWidth/3 + i ]);
+					}
+				}
+
+			cvMerge(bImg, gImg, rImg, 0, colorImg);
+				
+				IplImage *grayImg =  cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
+				cvCvtColor( colorImg, grayImg, CV_BGR2GRAY );
+				cvNamedWindow("Color", 1);
+				cvShowImage("Color", colorImg);
+
+				IplImage *grayGradient =  cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
+				IplImage *grayLaplace =  cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
+				
+				cvSobel( grayImg, grayGradient, 1, 1);
+				cvLaplace(grayImg, grayLaplace);
+
+				cvAbs(grayGradient, grayGradient);
+				cvAbs(grayLaplace, grayLaplace);
+				//windowShowImage("Gray Laplace", rImg);
+				double min, max;
+				cvMinMaxLoc(grayGradient, &min, &max);
+				double scale1 = 255.0 / (max - min);   
+				double shift1 = min * scale;  
+				IplImage *show =  cvCreateImage( cvGetSize(grayGradient),  IPL_DEPTH_8U, 1);
+				cvConvertScaleAbs(grayGradient, show, scale1, shift1);
+				cvConvertScale(show, show, -1, 255);
+				//cvThreshold(show, show, 250, 255, CV_THRESH_BINARY);
+
+				cvNamedWindow("Gray Gradient", 1);
+				cvShowImage("Gray Gradient", show);
+
+				
+
+				double featureMin, featureMax;
+				cvMinMaxLoc(weight, &featureMin, &featureMax);
+				double scale = 255.0 / (featureMax - featureMin);   
+				double shift = featureMin * scale;  
+				IplImage *featureGradient =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				cvConvertScaleAbs(weight, featureGradient, scale, shift);
+				cvConvertScale(featureGradient, featureGradient, -1, 255);
+				//cvThreshold(feature, feature, 252, 255, CV_THRESH_BINARY);
+
+				//cvThreshold(feature, feature, 128, 255, CV_THRESH_BINARY);	
+				cvNamedWindow("Gradient", 1);
+				cvShowImage("Gradient", featureGradient);
+
+				cvMin(featureGradient, show, featureGradient);
+				
+
+				/*IplImage *featureX =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_16S, 1);
+				IplImage *featureY =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_16S, 1);
+				IplImage *featureXY =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_16S, 1);
+				cvSobel( feature, featureX, 1, 0);
+				cvSobel( feature, featureY, 0, 1);
+				cvSobel( feature, featureXY, 1, 1);
+
+				wX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+				wY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
+				cvConvertScale(featureX, wX, 1, 0);
+				cvConvertScale(featureY, wY, 1, 0);
+				cvPow(wX, wX, 2);
+				cvPow(wY, wY, 2);
+
+				weight = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+				cvAdd(wX, wY, weight);
+				cvPow(weight, weight, 0.5);
+
+				cvMinMaxLoc(weight, &featureMin, &featureMax);
+				scale = 255.0 / (featureMax - featureMin);   
+				shift = featureMin * scale;  
+				feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				cvConvertScaleAbs(weight, feature, scale, shift);
+				cvConvertScale(feature, feature, -1, 255);*/
+
+				/*cvMinMaxLoc(featureXY, &featureMin, &featureMax);
+				scale = 255.0 / (featureMax - featureMin);   
+				shift = -featureMin * scale;  
+				feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				cvConvertScaleAbs(featureXY, feature, scale, shift);
+				cvConvertScale(feature, feature, -1, 255);*/
+
+				cvNamedWindow("Gradient Feature", 1);
+				cvShowImage("Gradient Feature", featureGradient);
+
+				cvMinMaxLoc(laplace, &featureMin, &featureMax);
+				scale = 255.0 / (featureMax - featureMin);   
+				shift = featureMin * scale;  
+				IplImage *featureLaplace =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				cvConvertScaleAbs(laplace, featureLaplace, scale, shift);
+				cvConvertScale(featureLaplace, featureLaplace, -1, 255);
+				//cvThreshold(feature, feature, 252, 255, CV_THRESH_BINARY);
+
+				cvThreshold(featureLaplace, featureLaplace, 128, 255, CV_THRESH_BINARY);	
+				cvNamedWindow("Laplace", 1);
+				cvShowImage("Laplace", featureLaplace);
+
+				cvMinMaxLoc(grayLaplace, &min, &max);
+				scale1 = 255.0 / (max - min);   
+				shift1 = min * scale;  
+				show =  cvCreateImage( cvGetSize(grayLaplace),  IPL_DEPTH_8U, 1);
+				cvConvertScaleAbs(grayLaplace, show, scale1, shift1);
+				cvConvertScale(show, show, -1, 255);
+
+				cvThreshold(show, show, 224, 255, CV_THRESH_BINARY);	
+				cvNamedWindow("Gray Laplace", 1);
+				cvShowImage("Gray Laplace", show);
+				
+
+				cvMin(featureLaplace, show, featureLaplace);
+
+				cvNamedWindow("Laplace Feature", 1);
+				cvShowImage("Laplace Feature", featureLaplace);
+
+				for(int i=0; i < featureGradient->width; i++)
+				{
+					for(int j=0; j < featureGradient->height; j++)
+					{
+						if( cvGetReal2D( featureLaplace, j, i) != 255 )
+						{
+							cvSetReal2D( featureGradient, j, i, 255);
+						}
+					}
+				}
+
+				cvNamedWindow("Feature", 1);
+				cvShowImage("Feature", featureGradient);
+				
+
+				sample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				cvSetZero(sample);
+				
+				/*IplImage *img =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				cvSetZero(img);
+				cvConvertScaleAbs(img0, img, 255);*/
+				numNonZero = cvCountNonZero(Image);
+				cvNamedWindow("Original Points", 1);
+				cvShowImage("Original Points", Image);
+
+				
+
+				/*****	Harris Corner	*****/
+				//IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+				//
+				//cvCornerHarris(img, feature, 3);
+				//
+				//
+				////cvAdaptiveThreshold(sample, sample, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 3, 0);
+				//double featureMin, featureMax;
+				//cvMinMaxLoc(feature, &featureMin, &featureMax);
+				//cout << "featureMax: " << featureMax << endl;
+				//double scale = 255 / (featureMax - featureMin);   
+				//double shift = -featureMin * scale;  
+				//cvConvertScaleAbs(feature, sample, scale, 0);
+				/*****	Harris Corner	*****/
+
+				/*****	Canny Edge	*****/
+				edge =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				IplImage *edgeInv =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				
+				cvMinMaxLoc(img0, &featureMin, &featureMax);
+				cout << "featureMax: " << featureMax << endl;
+				scale = 255.0 / (featureMax - featureMin);   
+				shift = -featureMin * scale;  
+				cvConvertScaleAbs(img0, edge, scale, shift);
+
+				//cvCanny(edge, edge, 5, 25);
+				cvCanny(edge, edge, 0, 150);
+				cvThreshold(edge, edgeInv, 250, 255, CV_THRESH_BINARY_INV);
+				
+				/*****	Canny Edge	*****/
+
+				/***** Morphology Opening *****/
+				int nSize=3;
+				IplConvKernel* circularElem = cvCreateStructuringElementEx(	nSize, // columns
+																														nSize, // rows
+																														floor(nSize/2.0), // anchor_x
+																														floor(nSize/2.0), // anchor_y
+																														CV_SHAPE_ELLIPSE, // shape
+																														NULL);
+				cvNamedWindow("Edge Map before Opening", 1);
+				cvShowImage("Edge Map before Opening", edgeInv);
+
+				IplImage *DFPrime = cvCreateImage( cvGetSize(edge), IPL_DEPTH_32F, 1 );
+				cvDistTransform(edgeInv, DFPrime);
+
+				cvMorphologyEx( edgeInv, edgeInv, 0, circularElem, CV_MOP_OPEN, 3 );
+				cvNamedWindow("Edge Map", 1);
+				cvShowImage("Edge Map", edgeInv);
+				/***** Morphology Opening *****/
+
+				
+
+				
+
+				/***** Distance Field *****/
+				IplImage *DF = cvCreateImage( cvGetSize(edge), IPL_DEPTH_32F, 1 );
+				IplImage *ImageDF =  cvCreateImage( cvGetSize(edge),  IPL_DEPTH_8U, 1 );
+				cvDistTransform(featureLaplace, DF);
+
+				cvMinMaxLoc(DF, &featureMin, &featureMax);
+				scale = 255.0 / (featureMax - featureMin);   
+				shift = -featureMin * scale;  
+				cvConvertScaleAbs(DF, ImageDF, scale, shift);
+				
+
+				IplImage *Gray = cvCreateImage( cvGetSize(edge), IPL_DEPTH_8U, 1 );
+				cvConvertScaleAbs(ImageDF, Gray, 3, 0);
+				/*cvSet( Gray, cvScalar(255) );
+				cvSub( Gray, ImageDF, Gray );*/
+
+				cvNamedWindow("Distance Field without Smooth", 1);
+				cvShowImage("Distance Field without Smooth", Gray);
+
+				/***** Offset Lane without Smooth*****/
+				ImageL =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+				ImageLPrime =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+
+				///*extractLine(ImageDFPrime, ImageLPrime, interval, linewidth);
+				//cvNamedWindow("Offset Lane without Opening", 1);
+				//cvShowImage("Offset Lane without Opening", ImageLPrime);*/
+
+				//extractLine(ImageDF, ImageL, interval, linewidth);
+				//cvNamedWindow("Offset Lane without Smooth", 1);
+				//cvShowImage("Offset Lane without Smooth", ImageL);
+				/***** Offset Lane without Smooth*****/
+
+				cvSmooth(ImageDF, ImageDF, CV_GAUSSIAN, 5);
+				cvSmooth(Gray, Gray, CV_GAUSSIAN, 5);
+
+				cvNamedWindow("Distance Field", 1);
+				cvShowImage("Distance Field", ImageDF);
+				
+				cvNamedWindow("Distance Field with Smooth", 1);
+				cvShowImage("Distance Field with Smooth", Gray);
+				/*IplImage *ImageDFPrime =  cvCreateImage( cvGetSize(edge),  IPL_DEPTH_8U, 1 );
+				cvMinMaxLoc(DFPrime, &featureMin, &featureMax);
+				scale = 255.0 / (featureMax - featureMin);   
+				shift = -featureMin * scale;  
+				cvConvertScaleAbs(DFPrime, ImageDFPrime, scale, shift);
+				cvSmooth(ImageDFPrime, ImageDFPrime, CV_GAUSSIAN, 5);
+				cvNamedWindow("Distance Field without Opening", 1);
+				cvShowImage("Distance Field without Opening", ImageDFPrime);*/
+				/***** Distance Field *****/
+
+				/***** Offset Lane *****/
+				/*ImageL =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+				ImageLPrime =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+				int interval = 12,linewidth = 6;*/
+
+				/*extractLine(ImageDFPrime, ImageLPrime, interval, linewidth);
+				cvNamedWindow("Offset Lane without Opening", 1);
+				cvShowImage("Offset Lane without Opening", ImageLPrime);*/
+
+				extractLine(ImageDF, ImageL, interval, linewidth);
+				cvNamedWindow("Offset Lane", 1);
+				cvShowImage("Offset Lane", ImageL);
+				/***** Offset Lane *****/
+			
+				/*****	Skewness	*****/	
+				IplImage *skewness =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+				setSkewness(Image, skewness, 5);
+
+				multiDensity(skewness, sample, gradientX, gradientY);
+				//
+				//cvThreshold(skewness, skewness, 0.000001, 255, CV_THRESH_BINARY);
+
+				//double featureMin, featureMax;
+				//cvMinMaxLoc(skewness, &featureMin, &featureMax);
+				//cout << "featureMax: " << featureMax << endl;
+				//double scale = 255.0 / (featureMax - featureMin);   
+				//double shift = -featureMin * scale;  
+				//IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				//cvConvertScaleAbs(skewness, feature, scale, shift);
+				/*****	Skewness	*****/
+
+				/*****	Poisson Disk Sampling	*****/
+
+				vector<unsigned int> importance;
+				Image2Relief(featureGradient, importance);
+
+				/*IplImage *Image1 = cvLoadImage("gradation.bmp",0);
+				Image2Relief(Image1, importance);*/
+				PDSampler *sampler = new PenroseSamplerW(0.02, img0->width, img0->height, importance);
+				sampler->complete();
+
+				
+				IplImage *PDSample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+				cvSet(PDSample, cvScalar(255));
+				int N = (int) sampler->points.size();
+				for (int i=0; i<N; i++) {
+					//cvCircle(PDSample, cvPoint( (1+sampler->points[i].y)*img0->width, (-sampler->points[i].x)*img0->height ), 0, cvScalarAll(0), -1);
+					cvSetReal2D(PDSample, (1+sampler->points[i].y)*img0->width, (-sampler->points[i].x)*img0->height, 0);
+				}
+
+				
+				//IplImage *featureOPEN =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_8U, 1);
+				//IplImage *featureThreshold =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_8U, 1);
+				//int nSize=3;
+				//IplConvKernel* circularElem = cvCreateStructuringElementEx(	nSize, // columns
+				//																										nSize, // rows
+				//																										floor(nSize/2.0), // anchor_x
+				//																										floor(nSize/2.0), // anchor_y
+				//																										CV_SHAPE_ELLIPSE, // shape
+				//																										NULL);
+
+				//cvMorphologyEx( feature, featureOPEN, 0, circularElem, CV_MOP_OPEN, 1 );
+				//cvNamedWindow("OPEN first", 1);
+				//cvShowImage("OPEN first", featureOPEN);
+				//cvThreshold( featureOPEN, featureThreshold, 5, 255, CV_THRESH_BINARY);			
+				//cvNamedWindow("Threshold last", 1);
+				//cvShowImage("Threshold last", featureThreshold);
+
+				//cvThreshold(feature, featureThreshold, 5, 255, CV_THRESH_BINARY);			
+				//cvNamedWindow("Threshold first", 1);
+				//cvShowImage("Threshold first", featureThreshold);
+
+				//cvErode(featureThreshold, feature, circularElem, 5);
+				////cvDilate(feature, feature, circularElem, 1);		
+				//cvNamedWindow("FeatureDilateErode", 1);
+				//cvShowImage("FeatureDilateErode", feature);
+
+				//cvMorphologyEx( featureThreshold, featureOPEN, 0, circularElem, CV_MOP_OPEN, 1 );
+				//cvNamedWindow("OPEN last", 1);
+				//cvShowImage("OPEN last", featureOPEN);	
+
+				//cvCopy( PDSample, sample );
+				cvNamedWindow("Poisson Disk Sampling", 1);
+				cvShowImage("Poisson Disk Sampling", PDSample);
+				/*****	Poisson Disk Sampling	*****/
+
 				start_time1 = clock();
-				histogramBase(heightPyr[0], gradientX, gradientY, pyrLevel-1, 1 );
-					
+ 				histogramBase(heightPyr[0], gradientX, gradientY, /*0*/pyrLevel-1, 0 );
+				//histogramBase(heightPyr[0], gradientX, gradientY);
+				
+				vector< pair<int, int> > pathMask;
+				setPathMask(pathMask, 5);
+				cout << "Mask Size: " << pathMask.size() << endl;
+
+
 			}
 			else	//F4
 			{
@@ -6036,6 +7242,19 @@ void display(void)
 
 		if(mesh1)
 		{
+			if(map1)
+			{
+				IplImage *heightMap = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
+				IplImage *heightImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
+				Relief2Image(heightPyr[0], heightImg, winHeight - boundary*2);
+				cvConvertScaleAbs(heightImg, heightMap, 255, 0);
+
+				cvNamedWindow("Height Map1", 1);
+				cvShowImage("Height Map1", heightMap);
+
+				map1 = false;
+			}
+			
 			DrawRelief(compressedH, pThreadRelief, pThreadNormal);
 
 			if(time1)
@@ -6059,8 +7278,6 @@ void display(void)
 
 		if(relief2)
 		{
-			
-
 			int width = sqrt( (float) heightPyr[0].size() );
 			/*IplImage *img= cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
 			Relief2Image(heightPyr[0], img);*/
@@ -6085,162 +7302,190 @@ void display(void)
 			cvPow(weight, weight, 0.5);
 			compress(weight, 10);
 
-			IplImage *laplace =  cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
-			cvLaplace(Image, laplace);
-			//cvSet(laplace, cvScalar(1));
+			//IplImage *laplace =  cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
+			//cvLaplace(Image, laplace);
+			////cvSet(laplace, cvScalar(1));
 
-			cvAbs(laplace, laplace);
-			
-			compress(laplace, 0.5);
-			double featureMin, featureMax;
-			cvMinMaxLoc(weight, &featureMin, &featureMax);
-			double scale = 255.0 / (featureMax - featureMin);   
-			double shift = featureMin * scale;  
-			IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			cvConvertScaleAbs(weight, feature, scale, shift);
-			//cvConvertScale(feature, feature, -1, 255);
-			//cvThreshold(feature, feature, 252, 255, CV_THRESH_BINARY);
-
-			cvThreshold(feature, feature, 128, 255, CV_THRESH_BINARY);	
-			cvNamedWindow("Gradient", 1);
-			cvShowImage("Gradient", feature);
-
-			IplImage *featureX =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_16S, 1);
-			IplImage *featureY =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_16S, 1);
-			IplImage *featureXY =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_16S, 1);
-			cvSobel( feature, featureX, 1, 0);
-			cvSobel( feature, featureY, 0, 1);
-			cvSobel( feature, featureXY, 1, 1);
-
-			wX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
-			wY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
-			cvConvertScale(featureX, wX, 1, 0);
-			cvConvertScale(featureY, wY, 1, 0);
-			cvPow(wX, wX, 2);
-			cvPow(wY, wY, 2);
-
-			weight = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
-			cvAdd(wX, wY, weight);
-			cvPow(weight, weight, 0.5);
-
-			cvMinMaxLoc(weight, &featureMin, &featureMax);
-			scale = 255.0 / (featureMax - featureMin);   
-			shift = featureMin * scale;  
-			feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			cvConvertScaleAbs(weight, feature, scale, shift);
-			cvConvertScale(feature, feature, -1, 255);
-
-			/*cvMinMaxLoc(featureXY, &featureMin, &featureMax);
-			scale = 255.0 / (featureMax - featureMin);   
-			shift = -featureMin * scale;  
-			feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			cvConvertScaleAbs(featureXY, feature, scale, shift);
-			cvConvertScale(feature, feature, -1, 255);*/
-
-			cvNamedWindow("Feature", 1);
-			cvShowImage("Feature", feature);
-
-			sample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			cvSetZero(sample);
-			
-			/*IplImage *img =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			cvSetZero(img);
-			cvConvertScaleAbs(img0, img, 255);*/
-			numNonZero = cvCountNonZero(Image);
-			cvNamedWindow("Original Points", 1);
-			cvShowImage("Original Points", Image);
-
-			
-
-			/*****	Harris Corner	*****/
-			//IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+			//cvAbs(laplace, laplace);
 			//
-			//cvCornerHarris(img, feature, 3);
-			//
-			//
-			////cvAdaptiveThreshold(sample, sample, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 3, 0);
+			//compress(laplace, 0.5);
 			//double featureMin, featureMax;
-			//cvMinMaxLoc(feature, &featureMin, &featureMax);
+			//cvMinMaxLoc(weight, &featureMin, &featureMax);
+			//double scale = 255.0 / (featureMax - featureMin);   
+			//double shift = featureMin * scale;  
+			//IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			//cvConvertScaleAbs(weight, feature, scale, shift);
+			//cvConvertScale(feature, feature, -1, 255);
+			////cvThreshold(feature, feature, 252, 255, CV_THRESH_BINARY);
+
+			//cvThreshold(feature, feature, 128, 255, CV_THRESH_BINARY);	
+			//cvNamedWindow("Gradient", 1);
+			//cvShowImage("Gradient", feature);
+
+			///*IplImage *featureX =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_16S, 1);
+			//IplImage *featureY =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_16S, 1);
+			//IplImage *featureXY =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_16S, 1);
+			//cvSobel( feature, featureX, 1, 0);
+			//cvSobel( feature, featureY, 0, 1);
+			//cvSobel( feature, featureXY, 1, 1);
+
+			//wX = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+			//wY = cvCreateImage( cvGetSize(gradientY), IPL_DEPTH_64F, 1);
+			//cvConvertScale(featureX, wX, 1, 0);
+			//cvConvertScale(featureY, wY, 1, 0);
+			//cvPow(wX, wX, 2);
+			//cvPow(wY, wY, 2);
+
+			//weight = cvCreateImage( cvGetSize(gradientX), IPL_DEPTH_64F, 1);
+			//cvAdd(wX, wY, weight);
+			//cvPow(weight, weight, 0.5);
+
+			//cvMinMaxLoc(weight, &featureMin, &featureMax);
+			//scale = 255.0 / (featureMax - featureMin);   
+			//shift = featureMin * scale;  
+			//feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			//cvConvertScaleAbs(weight, feature, scale, shift);
+			//cvConvertScale(feature, feature, -1, 255);*/
+
+			///*cvMinMaxLoc(featureXY, &featureMin, &featureMax);
+			//scale = 255.0 / (featureMax - featureMin);   
+			//shift = -featureMin * scale;  
+			//feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			//cvConvertScaleAbs(featureXY, feature, scale, shift);
+			//cvConvertScale(feature, feature, -1, 255);*/
+
+			//cvNamedWindow("Feature", 1);
+			//cvShowImage("Feature", feature);
+
+			//sample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			//cvSetZero(sample);
+			//
+			///*IplImage *img =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			//cvSetZero(img);
+			//cvConvertScaleAbs(img0, img, 255);*/
+			//numNonZero = cvCountNonZero(Image);
+			//cvNamedWindow("Original Points", 1);
+			//cvShowImage("Original Points", Image);
+
+			//
+
+			///*****	Harris Corner	*****/
+			////IplImage *feature =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_32F, 1);
+			////
+			////cvCornerHarris(img, feature, 3);
+			////
+			////
+			//////cvAdaptiveThreshold(sample, sample, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 3, 0);
+			////double featureMin, featureMax;
+			////cvMinMaxLoc(feature, &featureMin, &featureMax);
+			////cout << "featureMax: " << featureMax << endl;
+			////double scale = 255 / (featureMax - featureMin);   
+			////double shift = -featureMin * scale;  
+			////cvConvertScaleAbs(feature, sample, scale, 0);
+			///*****	Harris Corner	*****/
+
+			///*****	Canny Edge	*****/
+			//edge =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			//IplImage *edgeInv =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			//
+			//cvMinMaxLoc(img0, &featureMin, &featureMax);
 			//cout << "featureMax: " << featureMax << endl;
-			//double scale = 255 / (featureMax - featureMin);   
-			//double shift = -featureMin * scale;  
-			//cvConvertScaleAbs(feature, sample, scale, 0);
-			/*****	Harris Corner	*****/
+			//scale = 255.0 / (featureMax - featureMin);   
+			//shift = -featureMin * scale;  
+			//cvConvertScaleAbs(img0, edge, scale, shift);
 
-			/*****	Canny Edge	*****/
-			edge =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			IplImage *edgeInv =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			
-			cvMinMaxLoc(img0, &featureMin, &featureMax);
-			cout << "featureMax: " << featureMax << endl;
-			scale = 255.0 / (featureMax - featureMin);   
-			shift = -featureMin * scale;  
-			cvConvertScaleAbs(img0, edge, scale, shift);
+			////cvCanny(edge, edge, 5, 25);
+			//cvCanny(edge, edge, 0, 150);
+			//cvThreshold(edge, edgeInv, 250, 255, CV_THRESH_BINARY_INV);
+			//
+			///*****	Canny Edge	*****/
 
-			//cvCanny(edge, edge, 5, 25);
-			cvCanny(edge, edge, 0, 150);
-			cvThreshold(edge, edgeInv, 250, 255, CV_THRESH_BINARY_INV);
-			
-			/*****	Canny Edge	*****/
+			///***** Morphology Opening *****/
+			//int nSize=3;
+			//IplConvKernel* circularElem = cvCreateStructuringElementEx(	nSize, // columns
+			//																										nSize, // rows
+			//																										floor(nSize/2.0), // anchor_x
+			//																										floor(nSize/2.0), // anchor_y
+			//																										CV_SHAPE_ELLIPSE, // shape
+			//																										NULL);
+			//cvNamedWindow("Edge Map before Opening", 1);
+			//cvShowImage("Edge Map before Opening", edgeInv);
 
-			/***** Morphology Opening *****/
-			int nSize=3;
-			IplConvKernel* circularElem = cvCreateStructuringElementEx(	nSize, // columns
-																													nSize, // rows
-																													floor(nSize/2.0), // anchor_x
-																													floor(nSize/2.0), // anchor_y
-																													CV_SHAPE_ELLIPSE, // shape
-																													NULL);
-			cvNamedWindow("Edge Map before Opening", 1);
-			cvShowImage("Edge Map before Opening", edgeInv);
+			//IplImage *DFPrime = cvCreateImage( cvGetSize(edge), IPL_DEPTH_32F, 1 );
+			//cvDistTransform(edgeInv, DFPrime);
 
-			IplImage *DFPrime = cvCreateImage( cvGetSize(edge), IPL_DEPTH_32F, 1 );
-			cvDistTransform(edgeInv, DFPrime);
+			//cvMorphologyEx( edgeInv, edgeInv, 0, circularElem, CV_MOP_OPEN, 3 );
+			//cvNamedWindow("Edge Map", 1);
+			//cvShowImage("Edge Map", edgeInv);
+			///***** Morphology Opening *****/
 
-			cvMorphologyEx( edgeInv, edgeInv, 0, circularElem, CV_MOP_OPEN, 3 );
-			cvNamedWindow("Edge Map", 1);
-			cvShowImage("Edge Map", edgeInv);
-			/***** Morphology Opening *****/
+			//
 
-			
+			//
 
-			
+			///***** Distance Field *****/
+			//IplImage *DF = cvCreateImage( cvGetSize(edge), IPL_DEPTH_32F, 1 );
+			//IplImage *ImageDF =  cvCreateImage( cvGetSize(edge),  IPL_DEPTH_8U, 1 );
+			//cvDistTransform(feature, DF);
 
-			/***** Distance Field *****/
-			IplImage *DF = cvCreateImage( cvGetSize(edge), IPL_DEPTH_32F, 1 );
-			IplImage *ImageDF =  cvCreateImage( cvGetSize(edge),  IPL_DEPTH_8U, 1 );
-			cvDistTransform(feature, DF);
+			//cvMinMaxLoc(DF, &featureMin, &featureMax);
+			//scale = 255.0 / (featureMax - featureMin);   
+			//shift = -featureMin * scale;  
+			//cvConvertScaleAbs(DF, ImageDF, scale, shift);
+			//
 
-			cvMinMaxLoc(DF, &featureMin, &featureMax);
-			scale = 255.0 / (featureMax - featureMin);   
-			shift = -featureMin * scale;  
-			cvConvertScaleAbs(DF, ImageDF, scale, shift);
-			cvSmooth(ImageDF, ImageDF, CV_GAUSSIAN, 5);
-			cvNamedWindow("Distance Field", 1);
-			cvShowImage("Distance Field", ImageDF);
+			//IplImage *Gray = cvCreateImage( cvGetSize(edge), IPL_DEPTH_8U, 1 );
+			//cvConvertScaleAbs(ImageDF, Gray, 3, 0);
+			///*cvSet( Gray, cvScalar(255) );
+			//cvSub( Gray, ImageDF, Gray );*/
 
-			/*IplImage *ImageDFPrime =  cvCreateImage( cvGetSize(edge),  IPL_DEPTH_8U, 1 );
-			cvMinMaxLoc(DFPrime, &featureMin, &featureMax);
-			scale = 255.0 / (featureMax - featureMin);   
-			shift = -featureMin * scale;  
-			cvConvertScaleAbs(DFPrime, ImageDFPrime, scale, shift);
-			cvSmooth(ImageDFPrime, ImageDFPrime, CV_GAUSSIAN, 5);
-			cvNamedWindow("Distance Field without Opening", 1);
-			cvShowImage("Distance Field without Opening", ImageDFPrime);*/
-			/***** Distance Field *****/
+			//cvNamedWindow("Distance Field without Smooth", 1);
+			//cvShowImage("Distance Field without Smooth", Gray);
 
-			/***** Offset Lane *****/
-			ImageL =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
-			ImageLPrime =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
-			int interval = 12,linewidth = 6;
+			///***** Offset Lane without Smooth*****/
+			//ImageL =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+			//ImageLPrime =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+			//int interval = 12,linewidth = 6;
 
-			/*extractLine(ImageDFPrime, ImageLPrime, interval, linewidth);
-			cvNamedWindow("Offset Lane without Opening", 1);
-			cvShowImage("Offset Lane without Opening", ImageLPrime);*/
+			/////*extractLine(ImageDFPrime, ImageLPrime, interval, linewidth);
+			////cvNamedWindow("Offset Lane without Opening", 1);
+			////cvShowImage("Offset Lane without Opening", ImageLPrime);*/
 
-			extractLine(ImageDF, ImageL, interval, linewidth);
-			cvNamedWindow("Offset Lane", 1);
-			cvShowImage("Offset Lane", ImageL);
+			////extractLine(ImageDF, ImageL, interval, linewidth);
+			////cvNamedWindow("Offset Lane without Smooth", 1);
+			////cvShowImage("Offset Lane without Smooth", ImageL);
+			///***** Offset Lane without Smooth*****/
+
+			//cvSmooth(ImageDF, ImageDF, CV_GAUSSIAN, 5);
+			//cvSmooth(Gray, Gray, CV_GAUSSIAN, 5);
+
+			//cvNamedWindow("Distance Field", 1);
+			//cvShowImage("Distance Field", ImageDF);
+			//
+			//cvNamedWindow("Distance Field with Smooth", 1);
+			//cvShowImage("Distance Field with Smooth", Gray);
+			///*IplImage *ImageDFPrime =  cvCreateImage( cvGetSize(edge),  IPL_DEPTH_8U, 1 );
+			//cvMinMaxLoc(DFPrime, &featureMin, &featureMax);
+			//scale = 255.0 / (featureMax - featureMin);   
+			//shift = -featureMin * scale;  
+			//cvConvertScaleAbs(DFPrime, ImageDFPrime, scale, shift);
+			//cvSmooth(ImageDFPrime, ImageDFPrime, CV_GAUSSIAN, 5);
+			//cvNamedWindow("Distance Field without Opening", 1);
+			//cvShowImage("Distance Field without Opening", ImageDFPrime);*/
+			///***** Distance Field *****/
+
+			///***** Offset Lane *****/
+			///*ImageL =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+			//ImageLPrime =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+			//int interval = 12,linewidth = 6;*/
+
+			///*extractLine(ImageDFPrime, ImageLPrime, interval, linewidth);
+			//cvNamedWindow("Offset Lane without Opening", 1);
+			//cvShowImage("Offset Lane without Opening", ImageLPrime);*/
+
+			//extractLine(ImageDF, ImageL, interval, linewidth);
+			//cvNamedWindow("Offset Lane", 1);
+			//cvShowImage("Offset Lane", ImageL);
 			/***** Offset Lane *****/
 			
 
@@ -6263,18 +7508,21 @@ void display(void)
 
 			/*****	Poisson Disk Sampling	*****/
 
-			vector<unsigned int> importance;
-			Image2Relief(feature, importance);
-			PDSampler *sampler = new PenroseSamplerW(0.02, img0->width, img0->height, importance);
-			sampler->complete();
+			//vector<unsigned int> importance;
+			//Image2Relief(feature, importance);
 
-			
-			IplImage *PDSample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-			cvSet(PDSample, cvScalar(255));
-			int N = (int) sampler->points.size();
-			for (int i=0; i<N; i++) {
-				cvCircle(PDSample, cvPoint( (1+sampler->points[i].y)*img0->width, (-sampler->points[i].x)*img0->height ), 0, cvScalarAll(0), -1);
-			}
+			///*IplImage *Image1 = cvLoadImage("gradation.bmp",0);
+			//Image2Relief(Image1, importance);*/
+			//PDSampler *sampler = new PenroseSamplerW(0.02, img0->width, img0->height, importance);
+			//sampler->complete();
+
+			//
+			//IplImage *PDSample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
+			//cvSet(PDSample, cvScalar(255));
+			//int N = (int) sampler->points.size();
+			//for (int i=0; i<N; i++) {
+			//	cvCircle(PDSample, cvPoint( (1+sampler->points[i].y)*img0->width, (-sampler->points[i].x)*img0->height ), 0, cvScalarAll(0), -1);
+			//}
 
 			
 			//IplImage *featureOPEN =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_8U, 1);
@@ -6307,8 +7555,8 @@ void display(void)
 			//cvNamedWindow("OPEN last", 1);
 			//cvShowImage("OPEN last", featureOPEN);	
 
-			cvNamedWindow("Poisson Disk Sampling", 1);
-			cvShowImage("Poisson Disk Sampling", PDSample);
+			/*cvNamedWindow("Poisson Disk Sampling", 1);
+			cvShowImage("Poisson Disk Sampling", PDSample);*/
 			/*****	Poisson Disk Sampling	*****/
 
 			cout << "#NonZero of Original: " << numNonZero << endl;		
@@ -6319,6 +7567,8 @@ void display(void)
 			cvThreshold(sample, sample, 0, 255, CV_THRESH_BINARY);
 			cvNamedWindow("Sample Points", 1);
 			cvShowImage("Sample Points", sample);
+
+			
 			
 			time2 = true;
 			total_time2 = 0;
@@ -6373,9 +7623,9 @@ void display(void)
 			}
 			else	//F12
 			{		
-				referenceHeight.resize( heightPyr[pyrLevel-1].size() );
+				/*referenceHeight.resize( heightPyr[pyrLevel-1].size() );
 
-				//float side = sqrt( (float) heightPyr[pyrLevel-1].size() );
+				
 				int height = (winHeight - boundary*2) / pow(2.0, pyrLevel-1);
 				int width = heightPyr[pyrLevel-1].size() / height;
 				IplImage *srcImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
@@ -6388,8 +7638,27 @@ void display(void)
 					srcImg = cvCreateImage( cvSize(dstImg->width, dstImg->height), IPL_DEPTH_32F, 1);
 					cvCopy(dstImg, srcImg);
 				}
-				Image2Relief(srcImg, referenceHeight);
-			
+				Image2Relief(srcImg, referenceHeight);*/
+
+				float	 maxHeight=0, minHeight=1;
+				for(int i=0; i < heightPyr[0].size(); i++)
+				{
+					float height = heightPyr[0][i];
+					if( maxHeight < height )
+					{
+						maxHeight = height;
+					}
+					if( minHeight > height && height !=0 )
+					{
+						minHeight = height;
+					}
+				}
+				float range = maxHeight - minHeight;
+				referenceHeight.resize( heightPyr[0].size() );
+				for(int i=0; i < heightPyr[0].size(); i++)
+				{
+					referenceHeight[i] = heightPyr[0][i] / range;
+				}
 				/*for(int i=0; i<heightPyr[pyrLevel-1].size(); i++)
 				{
 					referenceHeight[i] = heightPyr[pyrLevel-1][i];
@@ -6405,9 +7674,6 @@ void display(void)
 		if(mesh2)
 		{
 			
-
-			
-
 		
 			DrawRelief(referenceHeight, pThreadEqualizeRelief, pThreadEqualizeNormal);
 			
@@ -6418,8 +7684,8 @@ void display(void)
 				Relief2Image(referenceHeight, heightImg, winHeight - boundary*2);
 				cvConvertScaleAbs(heightImg, heightMap, 255, 0);
 
-				cvNamedWindow("Height Map", 1);
-				cvShowImage("Height Map", heightMap);
+				cvNamedWindow("Height Map2", 1);
+				cvShowImage("Height Map2", heightMap);
 
 				map2 = false;
 			}
@@ -6699,6 +7965,14 @@ void myKeys(unsigned char key, int x, int y)
 			reliefAngleY++;
 			setZeroAxis();
 			break;
+		case '*':  
+			 reliefAngleZ--;
+			 setZeroAxis();
+			break;
+		case '/':  
+			reliefAngleZ++;
+			setZeroAxis();
+			break;
 		case '8':  
 			 reliefAngleX--;
 			 setZeroAxis();
@@ -6708,11 +7982,11 @@ void myKeys(unsigned char key, int x, int y)
 			setZeroAxis();
 			break;
 		case '+':  
-			scale += 0.25; 
+			scale += 0.125; 
 			break;
         case '-': 
 			if(scale > 0.1)
-			scale -= 0.25; 
+			scale -= 0.125; 
 			break;
 		/***** relief transformation *****/
 		case 'r':
