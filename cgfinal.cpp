@@ -133,8 +133,8 @@ const int n=4;
 //float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
 float thetaS[n+1] = {1, 0.00001, 0.000001, 0.0000001, 0};
 float o = (interval - linewidth) * 1/3;
-float radius[n] = {o, o + 3, o + 5, o + 7};
-//float radius[n] = {30, 33, 35, 37};
+//float radius[n] = {o, o + 3, o + 5, o + 7};
+float radius[n] = {30, 33, 35, 37};
 
 GLdouble *pThreadRelief = NULL;
 GLdouble *pThreadNormal = NULL;
@@ -2654,12 +2654,16 @@ float length(Node p1, Node p2)
 	return sqrt( pow((float)p1.first - p2.first, 2) + pow((float)p1.second - p2.second, 2) );
 }
 
-float costSlope(Node p1, Node p2)
+float costSlope(Node p1, Node p2, int extent=5)
 {
 	int height = winHeight - boundary*2;
-	float h1 = compressedH[ p1.first*height + p1.second ];
-	float h2 = compressedH[ p2.first*height + p2.second ];
-	return abs( (h1 - h2)*height ) / sqrt( pow( length(p1, p2), 2) + pow( (h1 - h2)*height, 2) );
+	float h1 = compressedH/*heightPyr[0]*/[ p1.first*height + p1.second ];
+	float h2 = compressedH/*heightPyr[0]*/[ p2.first*height + p2.second ];
+	float cost = abs( (h1 - h2)*height ) / length(p1, p2);
+	//float cost = abs( (h1 - h2)*height ) / sqrt( pow( length(p1, p2), 2) + pow( (h1 - h2)*ahe_m/*height*/, 2) );
+	//float cost = 1 - length(p1, p2) / sqrt( pow( length(p1, p2), 2) + pow( (h1 - h2)*height/**ahe_m*sqrt(2.0)*/, 2) );
+	cout << "Cost: " << cost << endl;
+	return cost;
 }
 
 float costCurvature(Node p1, Node p2, Node p3)
@@ -2679,13 +2683,13 @@ float costCurvature(Node p1, Node p2, Node p3)
 	return theta / M_PI;//normalize to [0,1]
 }
 
-float cost(vector< Node > path, float weight=0.5)
+float cost(vector< Node > path, int extent=5, float weight=0.5)
 {
 	float slope=0, curvature=0;
 	int i;
 	for(i=0; i < path.size()-2; i++)
 	{
-		slope += costSlope(path[i+1], path[i+2]);
+		slope += costSlope(path[i+1], path[i+2], extent);
 		curvature += costCurvature(path[i], path[i+1], path[i+2]);
 	}
 	//slope += costSlope(path[i], path[i+1]);
@@ -2693,7 +2697,7 @@ float cost(vector< Node > path, float weight=0.5)
 	return (1-weight)*slope + weight*curvature;
 }
 
-void setMinOfPathMask(vector< Node > pathMask, vector< Node > &path, Node &p, float weight=0.5)
+void setMinOfPathMask(vector< Node > pathMask, vector< Node > &path, Node &p, int extent=5, float weight=0.5)
 {
 	int height = winHeight - boundary*2;
 	
@@ -2721,7 +2725,7 @@ void setMinOfPathMask(vector< Node > pathMask, vector< Node > &path, Node &p, fl
 			}
 			newpath.insert( newpath.end()-1, p );
 
-			float costCurrent = cost(newpath, weight);
+			float costCurrent = cost(newpath, extent, weight);
 			//cout << "costCurrent: " << costCurrent << endl;
 			if( costCurrent <= costMin )
 			{
@@ -2738,6 +2742,7 @@ void setMinOfPathMask(vector< Node > pathMask, vector< Node > &path, Node &p, fl
 		}
 
 	}
+	cout << "Cost Min: " << costMin << endl;
 
 	float lengthMin=costList.size();
 	for(int i=0; i < costList.size(); i++)
@@ -2781,11 +2786,11 @@ void findPath(vector< Node > &path, float zpower=0.5, int extent=5)
 	cout << "Mask Size: " << pathMask.size() << endl;
 
 	float costMax;
-	costMax = cost(path);
+	costMax = cost(path, extent, zpower);
 	vector< Node > initialPath = path;
 
 	Node p;
-	setMinOfPathMask(pathMask, path, p, zpower);
+	setMinOfPathMask(pathMask, path, p, extent, zpower);
 	vector< Node > prePath, newPath;
 
 	if( path.size() >=  3 )
@@ -2839,7 +2844,7 @@ void findPath(vector< Node > &path, float zpower=0.5, int extent=5)
 	}*/
 }
 
-void generateCarve(const vector<GLfloat> &src)
+void generateCarvePath(const vector<GLfloat> &src)
 {
 	string dataS,queryS;
 	int height = winHeight - boundary*2;
@@ -2962,14 +2967,87 @@ void generateCarve(const vector<GLfloat> &src)
 
 	}
 
-	cvMerge(b, g, r, 0, pathImg);
+	/*cvMerge(b, g, r, 0, pathImg);
 	cvNamedWindow("Carve Path", 1);
-	cvShowImage("Carve Path", pathImg);
+	cvShowImage("Carve Path", pathImg);*/
 
 	delete [] nnIdx;							// clean things up
 	delete [] dists;
 	delete kdTree;
 	annClose();									// done with ANN
+}
+
+void generateCarve( IplImage *angleImg, float weight=0.5 )
+{
+	int height = angleImg->height;
+	int width = angleImg->width;
+
+	IplImage *pathImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 3);
+	IplImage *r = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	IplImage *g = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	IplImage *b = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	cvCopy(sample, r);
+	cvCopy(sample, g);
+	cvCopy(sample, b);
+
+	for(int i=0; i < width; i++)
+	{
+		for(int j=0; j < height; j++)
+		{
+			if( !bgMask[ i*height + j ] )
+			{
+				double brightness = cvGetReal2D(sample, height - 1 - j, i);
+				if( brightness )
+				{
+					
+					double multiple = abs( angle / (M_PI/4) );
+
+					float length = 10 * brightness/255;
+					float x = i;
+					float y = height - 1 - j;
+					float xT = i;
+					float yT = height - 1 - j;
+
+					for(int k=length; k > 0 ; k--)
+					{
+						CvPoint p1 = cvPoint( x, y );
+						CvPoint p2 = cvPoint( xT, yT );
+						double angle = cvGetReal2D(angleImg, y, x);
+						double angleT = cvGetReal2D(angleImg, yT, xT);
+						x += cos( angle ) - sin( angle ) * M_PI/2 * sin( weight * sqrt( pow(x-i, 2) + pow(y-j, 2) ) );
+						y += sin( angle ) - cos( angle ) * M_PI/2 * sin( weight * sqrt( pow(x-i, 2) + pow(y-j, 2) ) );
+						xT += sin( angle );
+						yT += cos( angle );
+						cvLine( r, p1, cvPoint( x, y ), cvScalarAll(255) );
+						//cvLine( g, p2, cvPoint( xT, yT ), cvScalarAll(255) );
+					}
+
+					x = i;
+					y = height - 1 - j;
+					xT = i;
+					yT = height - 1 - j;
+
+					for(int k=length; k > 0 ; k--)
+					{
+						CvPoint p1 = cvPoint( x, y );
+						CvPoint p2 = cvPoint( xT, yT );
+						double angle = cvGetReal2D(angleImg, y, x);
+						double angleT = cvGetReal2D(angleImg, yT, xT);
+						x -= cos( angle ) - sin( angle ) * M_PI/2 * sin( weight * sqrt( pow(x-i, 2) + pow(y-j, 2) ) );
+						y -= sin( angle ) - cos( angle ) * M_PI/2 * sin( weight * sqrt( pow(x-i, 2) + pow(y-j, 2) ) );
+						xT -= sin( angle );
+						yT -= cos( angle );
+						cvLine( r, p1, cvPoint( x, y ), cvScalarAll(255) );
+						//cvLine( g, p2, cvPoint( xT, yT ), cvScalarAll(255) );
+					}
+				}
+			}
+		}
+	}
+
+	cvMerge(b, g, r, 0, pathImg);
+	cvNamedWindow("Carve Path", 1);
+	cvShowImage("Carve Path", pathImg);
 }
 
 void equalizeHist(const vector<GLfloat> &src, vector<GLfloat> &dst, IplImage *sample, IplImage *gradient=NULL, int aperture=33, int srcHeight=0)
@@ -4741,7 +4819,35 @@ void histogramBase(const vector<GLfloat> &src, IplImage *weightX, IplImage *weig
 				compressedH[i] /= range/*/= HistogramBins*/;
 			}
 
-			generateCarve(compressedH);
+			//generateCarvePath(compressedH);
+
+			IplImage *img32f = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
+			IplImage *img8u = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
+			Relief2Image( compressedH, img32f, winHeight - boundary*2 );
+			cvConvertScaleAbs( img32f, img8u, 255);
+			IplImage *GradientX = cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
+			IplImage *GradientY = cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
+			IplImage *GradientA = cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
+
+			cvSobel( img8u, GradientX, 1, 0);
+			cvSobel( img8u, GradientY, 0, 1);
+
+			for(int i=0; i<GradientX->width; i++)
+			{
+				for(int j=0; j<GradientY->height; j++)
+				{
+					double y = cvGetReal2D(GradientY, j, i);
+					double x = cvGetReal2D(GradientX, j, i);
+					cvSetReal2D( GradientA, j, i, atan2(y, x) );
+				}
+			}
+	
+			IplImage *A = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
+			cvConvertScaleAbs(GradientA, A, 1, 0);
+			cvNamedWindow("Angle", 1);
+			cvShowImage("Angle", A);
+			generateCarve( GradientA, 0 );
+
 
 			BuildRelief(compressedH, pThreadRelief, pThreadNormal);
 			
@@ -7181,11 +7287,15 @@ void display(void)
 
 				
 				IplImage *PDSample =  cvCreateImage( cvGetSize(img0),  IPL_DEPTH_8U, 1);
-				cvSet(PDSample, cvScalar(255));
+				cvSet(PDSample, cvScalar(0));
 				int N = (int) sampler->points.size();
 				for (int i=0; i<N; i++) {
 					//cvCircle(PDSample, cvPoint( (1+sampler->points[i].y)*img0->width, (-sampler->points[i].x)*img0->height ), 0, cvScalarAll(0), -1);
-					cvSetReal2D(PDSample, (1+sampler->points[i].y)*img0->width, (-sampler->points[i].x)*img0->height, 0);
+					int x =	(1+sampler->points[i].y)*img0->width;
+					int y = (-sampler->points[i].x)*img0->height;
+					
+					double brightness = cvGetReal2D(featureGradient, y, x);
+					cvSetReal2D(PDSample, y, x, brightness);
 				}
 
 				
@@ -7219,7 +7329,7 @@ void display(void)
 				//cvNamedWindow("OPEN last", 1);
 				//cvShowImage("OPEN last", featureOPEN);	
 
-				//cvCopy( PDSample, sample );
+				cvCopy( PDSample, sample );
 				cvNamedWindow("Poisson Disk Sampling", 1);
 				cvShowImage("Poisson Disk Sampling", PDSample);
 				/*****	Poisson Disk Sampling	*****/
@@ -8071,7 +8181,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("model/asain dragon.obj");
+	MODEL = glmReadOBJ("model/ramp2.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
