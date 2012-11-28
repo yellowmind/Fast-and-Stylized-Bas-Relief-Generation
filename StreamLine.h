@@ -3,7 +3,7 @@
 #include "vector.h"
 #include <GL/glut.h>
 
-#define L 10
+#define L 40
 #define Ht 0.25
 
 extern VectorField *vectorfield;

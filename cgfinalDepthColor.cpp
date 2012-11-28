@@ -6244,12 +6244,12 @@ void displayline(void)
 //3D Scene
 void openglPath(void)
 {
-    string infix = /*"Buddhist Temple"*/"River Terrain2"/*"valleyRiver"*//*"ramp2"*/;
-	string whole = "img/" + infix + "S.bmp";
+    string infix = "Buddhist Temple"/*"River Terrain2"*//*"valleyRiver"*//*"ramp2"*/;
+	string whole = "img/" + infix + "/" + infix + "S.bmp";
 	segmentImg = cvLoadImage(whole.c_str(),0);
-	whole = "img/" + infix + "D.bmp";
+	whole = "img/" + infix + "/"  + infix + "D.bmp";
 	depthImg = cvLoadImage(whole.c_str(),1);
-	whole = "img/" + infix + "C.bmp";
+	whole = "img/" + infix + "/"  + infix + "C.bmp";
 	colorImg = cvLoadImage(whole.c_str(),1);
 	winWidth = (depthImg->width + 2*boundary)*3;
 	winHeight = depthImg->height + 2*boundary;
@@ -8115,8 +8115,8 @@ void display(void)
 				heightImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 3);
 				cvMerge(heightImg1, heightImg2, heightImg3, 0, heightImg);
 
-				string infix = /*"Buddhist Temple"*/"River Terrain2"/*"valleyRiver"*//*"ramp2"*/;
-				string whole = "img/" + infix + "/" + infix + "H.bmp";
+				string infix = "Buddhist Temple"/*"River Terrain2"*//*"valleyRiver"*//*"ramp2"*/;
+				string whole = "img/" + infix + "H.bmp";
 				cvSaveImage(whole.c_str(), heightImg);
 				
 
