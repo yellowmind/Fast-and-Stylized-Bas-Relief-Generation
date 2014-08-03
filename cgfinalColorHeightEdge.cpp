@@ -25,6 +25,7 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
+#include <list>
 #include <utility>
 #include <set>
 #include <ctime>
@@ -33,6 +34,7 @@
 #include "CVector3.h"
 #include "PDSampling.h"
 #include "StreamLine.h"
+#include "Stroke/Stroke.h"
 
 
 using namespace std;
@@ -46,7 +48,12 @@ using namespace cv;
 
 #define HistogramBins  10000
 #define ahe_m 128
-int interval = 22,linewidth = 3;
+#define DOT_INTERVAL true
+#define CARVEMODEL_UPSAMPLE false
+#define USE_STROKE true
+bool opaque = true;
+bool controlPolygon = false;
+int interval = 22,linewidth = 2;
 #define SIDE 29
 typedef pair<int, float> P;
 typedef pair<int, int> Node;
@@ -125,12 +132,13 @@ vector<bool> bgMask;
 vector<GLfloat> outlineMask;
 vector< vector<GLfloat > > heightPyr(pyrLevel);
 CvMat **imgPyr;
-IplImage *img0, *sample, *edge, *histImage1, *histImage2, *histImage3, *ImageL, *ImageLPrime, *GradientA, *carve, *carve2;
+IplImage *img0, *sample, *sample2, *edge, *histImage1, *histImage2, *histImage3, *ImageL, *ImageLPrime, *GradientA, *carve, *carve2;
 IplImage *segmentImg, *colorImg, *heightImg, *edgeImg;
-VectorField *vectorfield;
+VectorField *vectorfield, *vectorfield2;
 //vector<GLfloat> height;
 vector<GLfloat> compressedH, referenceHeight, sceneProfile, reliefProfile;
 
+list<Stroke> strList;
 
 //sampling density
 const int n=4;
@@ -627,7 +635,8 @@ void subSample(vector<GLfloat> array1, vector<GLfloat> &array2, int height =0)
 	}
 }
 
-void upSample(vector<GLfloat> array1, vector<GLfloat> &array2, int height =0)
+template <class T>
+void upSample(vector<T> array1, vector<T> &array2, int height =0)
 {
 	/*int width = sqrt( (float) array1.size() );
 	int height = sqrt( (float) array1.size() );*/
@@ -648,12 +657,13 @@ void upSample(vector<GLfloat> array1, vector<GLfloat> &array2, int height =0)
 		width = 0;
 	}
 
-	float A,B,C,D;
+	T A,B,C,D;
 	int x, y, index;
-	float x_ratio = ( (float)(width-1) ) / (width*2 );
-	float y_ratio = ( (float)(height-1) ) / (height*2);
-	float x_diff, y_diff;
+	T x_ratio = ( (T)(width-1) ) / (width*2 );
+	T y_ratio = ( (T)(height-1) ) / (height*2);
+	T x_diff, y_diff;
 	
+	array2.clear();
 	for(int i=0; i < width*2; i++)
 	{
 		for(int j=0; j < height*2; j++)
@@ -669,7 +679,7 @@ void upSample(vector<GLfloat> array1, vector<GLfloat> &array2, int height =0)
             C = array1.at( index+1 );
             D = array1.at( index+height+1 );
 
-			array2.push_back( A*(1-x_diff)*(1-y_diff) +  B*(x_diff)*(1-y_diff) + C*(y_diff)*(1-x_diff)   +  D*(x_diff*y_diff) );
+			array2.push_back( (T)  ( A*(1-x_diff)*(1-y_diff) +  B*(x_diff)*(1-y_diff) + C*(y_diff)*(1-x_diff)   +  D*(x_diff*y_diff) ) );
 		}
 
 		/*for(int j=0; j<height; j++)
@@ -683,6 +693,38 @@ void upSample(vector<GLfloat> array1, vector<GLfloat> &array2, int height =0)
 			array2.push_back( array1.at( i*height + j ) );	
 			array2.push_back( array1.at( i*height + j ) );		
 		}*/
+	}
+}
+
+void upSample(const IplImage *src, IplImage *dst)
+{
+	int width = src->width;
+	int height = src->height;
+
+	double A,B,C,D;
+	int x, y, index;
+	double  x_ratio = ( (double)(width-1) ) / (width*2 );
+	double  y_ratio = ( (double)(height-1) ) / (height*2);
+	double  x_diff, y_diff;
+	
+	
+	for(int i=0; i < width*2; i++)
+	{
+		for(int j=0; j < height*2; j++)
+		{
+			x = (int)(x_ratio * i) ;
+            y = (int)(y_ratio * j) ;
+			x_diff = (x_ratio * i) - x ;
+            y_diff = (y_ratio * j) - y ;
+            //index = y + x*height ;
+			
+			A = cvGetReal2D( src, y, x );
+            B = cvGetReal2D( src, y, x+1 );
+            C = cvGetReal2D( src, y+1, x );
+            D = cvGetReal2D( src, y+1, x+1 );
+
+			cvSetReal2D( dst, j, i, A*(1-x_diff)*(1-y_diff) +  B*(x_diff)*(1-y_diff) + C*(y_diff)*(1-x_diff)   +  D*(x_diff*y_diff)  );
+		}	
 	}
 }
 
@@ -1178,6 +1220,11 @@ void recordMax(vector<GLfloat> v)
 
 void BuildRelief(vector<GLfloat> &height, GLdouble *pThreadRelief, GLdouble *pThreadNormal)
 {
+	/*pThreadRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3);
+	pThreadNormal = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3 *2);*/
+	/*pThreadRelief = new (nothrow) GLdouble[vertCount *3];
+	pThreadNormal = new (nothrow) GLdouble[vertCount *3*2];*/
+	
 	for(int i=0; i < /*height.size() / (winHeight - boundary*2)*/winWidth/horizontalSplit - boundary*2 - 1; i++)
 		{
 			for(int j=0; j < winHeight - boundary*2 -1; j++)
@@ -1208,6 +1255,52 @@ void BuildRelief(vector<GLfloat> &height, GLdouble *pThreadRelief, GLdouble *pTh
 					memcpy( ( pThreadRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 ), v2[0], sizeof(GLdouble)*3 );
 					memcpy( ( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 ), v2[1], sizeof(GLdouble)*3 );
 					memcpy( ( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3 ), v2[2], sizeof(GLdouble)*3 );
+				//glEnd();
+				//glColor3f(1.0, 0.0, 0.0);
+			}
+		}
+}
+
+void BuildRelief2(vector<GLfloat> &height, GLdouble *pThreadRelief, GLdouble *pThreadNormal)
+{
+	int vertCount2 = vertCount*4;
+	/*pThreadRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount2 *3);
+	pThreadNormal = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount2 *3 *2);	*/
+#if CARVEMODEL_UPSAMPLE
+	pThreadRelief = new (nothrow) GLdouble[vertCount2 *3];
+	pThreadNormal = new (nothrow) GLdouble[vertCount2 *3*2];
+#endif
+	
+	for(int i=0; i < /*height.size() / (winHeight - boundary*2)*/(winWidth/horizontalSplit - boundary*2)*2 - 1; i++)
+		{
+			for(int j=0; j < (winHeight - boundary*2)*2 -1; j++)
+			{
+				int position = i*(winHeight - boundary*2)*2 + j;
+				
+				GLdouble normal[3];
+				GLdouble v1[3][3] =  { {i, j, height.at(position)}, {i+1, j, height.at(position+(winHeight - boundary*2)*2)}, { i, j+1, height.at(position+1)} };
+				
+				//glBegin(GL_TRIANGLES);
+					setNormal( v1, normal );
+					glNormal3dv(normal);
+					memcpy( ( pThreadNormal + ( i*((winHeight - boundary*2)*2)*2 + j*2 ) * 3 ), normal, sizeof(GLdouble)*3 );
+					/*glVertex3d( i, j, height.at(position) );
+					glVertex3d( i+1, j, height.at(position+winHeight - boundary*2) );
+					glVertex3d( i, j+1, height.at(position+1) );*/
+					memcpy( ( pThreadRelief + ( i*((winHeight - boundary*2)*2) + j ) * 3 ), v1[0], sizeof(GLdouble)*3 );
+					memcpy( ( pThreadRelief + ( (i+1)*((winHeight - boundary*2)*2) + j ) * 3 ), v1[1], sizeof(GLdouble)*3 );
+					memcpy( ( pThreadRelief + ( i*((winHeight - boundary*2)*2) + (j+1) ) * 3 ), v1[2], sizeof(GLdouble)*3 );
+					
+				GLdouble v2[3][3] = { {i, j+1, height.at(position+1)}, {i+1, j, height.at(position+(winHeight - boundary*2)*2)}, {i+1, j+1, height.at(position+(winHeight - boundary*2)*2 + 1)} };
+					setNormal( v2, normal);
+					glNormal3dv(normal);
+					memcpy( ( pThreadNormal + ( i*((winHeight - boundary*2)*2)*2 + j*2 ) * 3 + 3), normal, sizeof(GLdouble)*3 );
+					/*glVertex3d( i, j+1, height.at(position+1)  );
+					glVertex3d( i+1, j, height.at(position+winHeight - boundary*2) );				
+					glVertex3d( i+1, j+1, height.at(position+winHeight - boundary*2 + 1) );*/
+					memcpy( ( pThreadRelief + ( i*((winHeight - boundary*2)*2) + j+1 ) * 3 ), v2[0], sizeof(GLdouble)*3 );
+					memcpy( ( pThreadRelief + ( (i+1)*((winHeight - boundary*2)*2) + j ) * 3 ), v2[1], sizeof(GLdouble)*3 );
+					memcpy( ( pThreadRelief + ( (i+1)*((winHeight - boundary*2)*2) + (j+1) ) * 3 ), v2[2], sizeof(GLdouble)*3 );
 				//glEnd();
 				//glColor3f(1.0, 0.0, 0.0);
 			}
@@ -1638,6 +1731,8 @@ void partition3(void)
 	//Do not change, setting a basic transformation
 	glViewport(0, 0, winWidth, winHeight);
 
+
+
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
 	//glOrtho(-2.0, 2.0, -2.0, 2.0, -2.0, 2.0);
@@ -1682,6 +1777,26 @@ void partition3(void)
 
 	
 	//world coordinate
+	glColor3f(1, 0, 0);
+}
+
+void partitionStroke(void)
+{
+	//Do not change, setting a basic transformation
+	glViewport(0, 0, winWidth, winHeight);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+	//glOrtho(-2.0, 2.0, -2.0, 2.0, -2.0, 2.0);
+	glOrtho(0, winWidth, 0, winHeight, -2.0, 2.0);
+    
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+
+
+	//view transform
+	glViewport(winWidth*2/3 + boundary, 0 + boundary, winWidth/3 - 2*boundary, winHeight - 2*boundary);
+
 	glColor3f(1, 0, 0);
 }
 
@@ -3092,334 +3207,917 @@ void nextNeighbor( IplImage *src, IplImage *length, IplImage *angleImg, int x, i
 		
 }
 
-void generateCarve( IplImage *angleImg, float weight, float depth=0.1, float beta=0.1, float spread=0.33, float gamma=1 )
+//void generateCarve( IplImage *angleImg, float weight, float depth=0.1, float beta=0.1, float spread=0.33, float gamma=1 )
+//{
+//	int height = angleImg->height;
+//	int width = angleImg->width;
+//
+//	carve = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
+//	carve2 = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
+//	IplImage *pathImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 3);
+//	IplImage *r = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+//	IplImage *g = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+//	IplImage *b = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+//	cvCopy(sample, r);
+//	cvCopy(sample, g);
+//	cvCopy(sample, b);
+//
+//	vector< vector< vector<int> > >  carvepathList;
+//
+//	for(int i=0; i < width; i++)
+//	{
+//		for(int j=0; j < height; j++)
+//		{
+//			if( !bgMask[ i*height + j ] )
+//			{
+//				double brightness = cvGetReal2D(sample, height - 1 - j, i);
+//				if( brightness )
+//				{
+//					//cvSetReal2D(r, height - 1 - j, i, 255);
+//					
+//					double multiple = abs( angle / (M_PI/4) );
+//
+//					int length = round( 0.25 * sqrt( (float)height*width ) * samplingRatio + 15.0 * (1 - brightness/255) );
+//					float x = i;
+//					float y = height - 1 - j;
+//
+//					vector< pair<CvPoint, CvPoint> > segmentList;
+//					int k;
+//					float offset;
+//					for( k=length; k > 0 ; k-round(offset) )
+//					{
+//						CvPoint p1 = cvPoint( x, y );
+//						
+//						double angle = cvGetReal2D(angleImg, y, x);
+//						if(angle == 100) break;
+//						x += cos( angle );
+//						y += sin( angle );
+//
+//						/*if(  cvGetReal2D( r, y, x) == 0 )
+//						{*/
+//							segmentList.push_back( pair<CvPoint, CvPoint>(p1, cvPoint( round(x), round(y) )) );
+//							/*if( k != 1)
+//							{
+//								cvLine( b, p1, cvPoint( x, y ), cvScalarAll(254 - length + k) );					
+//							}
+//							else
+//							{
+//								cvLine( b, p1, cvPoint( x, y ), cvScalarAll(1) );
+//							}*/
+//							
+//							//cvLine( g, p2, cvPoint( xT, yT ), cvScalarAll(255) );
+//						/*}
+//						else
+//						{
+//							break;
+//						}*/
+//
+//						offset = sqrt( pow( (float)p1.x - x, 2 ) + pow( (float)p1.y - y, 2 ) );
+//					}
+//					length -= k; 
+//				
+//					for(int s=0; s < segmentList.size(); s++)
+//					{
+//						double angle = cvGetReal2D(angleImg, segmentList[s].first.y, segmentList[s].first.x);
+//						x = segmentList[s].first.x - sin( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].first.x-i, 2) + pow((float)segmentList[s].first.y-j, 2) ) );
+//						y = segmentList[s].first.y - cos( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].first.x-i, 2) + pow((float)segmentList[s].first.y-j, 2) ) );
+//						segmentList[s].first.x = x;
+//						segmentList[s].first.y = y;
+//						
+//						angle = cvGetReal2D(angleImg, segmentList[s].second.y, segmentList[s].second.x);
+//						x = segmentList[s].second.x - sin( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].second.x-i, 2) + pow((float)segmentList[s].second.y-j, 2) ) );
+//						y = segmentList[s].second.y - cos( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].second.x-i, 2) + pow((float)segmentList[s].second.y-j, 2) ) );
+//						segmentList[s].second.x = x;
+//						segmentList[s].second.y = y;
+//					}
+//
+//					vector< vector<int> > path;
+//					for(int s=0; s < segmentList.size(); s++)
+//					{
+//						cvLine( g, segmentList[s].first, segmentList[s].second, cvScalarAll(length - s) );
+//
+//						/*if( s < length - 1)
+//						{
+//							cvLine( r, segmentList[s].first, segmentList[s].second, cvScalarAll(255 - s) );					
+//						}
+//						else
+//						{
+//							cvLine( r, segmentList[s].first, segmentList[s].second, cvScalarAll(1) );
+//						}*/
+//						
+//						vector<int> d;
+//						d.push_back(segmentList[s].first.x);
+//						d.push_back(segmentList[s].first.y);
+//						d.push_back(length);
+//						path.push_back( d );
+//					}
+//					segmentList.clear();
+//					if( path.size() >= 1 )
+//					{
+//						carvepathList.push_back( path );
+//						path.clear();
+//					}
+//
+//					x = i;
+//					y = height - 1 - j;
+//					
+//					for(k=length; k > 0 ; k--)
+//					{
+//						CvPoint p1 = cvPoint( x, y );
+//						double angle = cvGetReal2D(angleImg, y, x);
+//						if(angle == 100) break;
+//						x -= cos( angle );
+//						y -= sin( angle );
+//
+//						/*if(  cvGetReal2D( r, y, x) == 0 )
+//						{*/
+//							segmentList.push_back( pair<CvPoint, CvPoint>(p1, cvPoint( round(x), round(y) )) );
+//							//cvLine( g, p1, cvPoint( x, y ), cvScalarAll(length) );
+//							//cvLine( g, p2, cvPoint( xT, yT ), cvScalarAll(255) );
+//						/*}
+//						else
+//						{
+//							break;
+//						}*/
+//					}
+//
+//					for(int s=0; s < segmentList.size(); s++)
+//					{
+//						double angle = cvGetReal2D(angleImg, segmentList[s].first.y, segmentList[s].first.x);
+//						x = segmentList[s].first.x + sin( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].first.x-i, 2) + pow((float)segmentList[s].first.y-j, 2) ) );
+//						y = segmentList[s].first.y + cos( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].first.x-i, 2) + pow((float)segmentList[s].first.y-j, 2) ) );
+//						segmentList[s].first.x = x;
+//						segmentList[s].first.y = y;
+//
+//						angle = cvGetReal2D(angleImg, segmentList[s].second.y, segmentList[s].second.x);
+//						x = segmentList[s].second.x + sin( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].second.x-i, 2) + pow((float)segmentList[s].second.y-j, 2) ) );
+//						y = segmentList[s].second.y + cos( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].second.x-i, 2) + pow((float)segmentList[s].second.y-j, 2) ) );
+//						segmentList[s].second.x = x;
+//						segmentList[s].second.y = y;
+//					}
+//
+//					for(int s=0; s < segmentList.size(); s++)
+//					{
+//						cvLine( g, segmentList[s].first, segmentList[s].second, cvScalarAll(length - s) );
+//
+//						/*if( s < length - 1)
+//						{
+//							cvLine( r, segmentList[s].first, segmentList[s].second, cvScalarAll(255 - s) );					
+//						}
+//						else
+//						{
+//							cvLine( r, segmentList[s].first, segmentList[s].second, cvScalarAll(1) );
+//						}*/
+//
+//						/*const int arr[] = {segmentList[s].first.x, segmentList[s].first.y, s+1}; 
+//						vector<int> d (arr, arr + sizeof(arr) / sizeof(arr[0]) );*/
+//						vector<int> d;
+//						d.push_back(segmentList[s].first.x);
+//						d.push_back(segmentList[s].first.y);
+//						d.push_back(length);
+//						path.push_back( d );
+//					}
+//					if( path.size() >= 1 )
+//					{
+//						carvepathList.push_back( path );
+//					}
+//
+//					IplImage *bgImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+//					Relief2Image( bgMask, bgImg);
+//					bgFilter( r, bgImg );
+//				
+//				}
+//			}
+//
+//		}
+//	}
+//
+//	for(int p=0; p < carvepathList.size(); p++)
+//	{
+//		for(int d=carvepathList[p].size()-1; d >= 0; d--)
+//		{
+//			CvPoint p1 = cvPoint( carvepathList[p][d][0], carvepathList[p][d][1] );
+//
+//			int x = carvepathList[p][d][0];
+//			int y = carvepathList[p][d][1];
+//			float length = carvepathList[p][d][2];
+//			if( round( length ) != 0.0 )
+//			{
+//				double depthRatio = depth / compress( length, beta );
+//				cvSetReal2D( carve, y, x, compress( length - d, beta )*depthRatio );
+//
+//				double spreadRatio = spread / compress( length, gamma );
+//				double segment = length * compress( length - d, gamma )*spreadRatio;
+//				double angle = cvGetReal2D( angleImg, y, x );
+//
+//				double depthSpreadRatio = depth / compress( spread*length, beta );
+//				
+//				for(int k=segment; k > 0 ; k--)
+//				{
+//					//if( cvGetReal2D( carve, y, x) ) continue;
+//					
+//					x += sin( angle );
+//					y += cos( angle );		
+//
+//
+//					
+//					/*if( cvGetReal2D( carve, y, x) == 0.0 )
+//					{*/
+//						cvSetReal2D( carve, y, x, compress( k, beta )*depthSpreadRatio );
+//					//}
+//					//cvLine( carve, p1, cvPoint( x, y ), cvScalarAll(1) );					
+//				}
+//
+//				x = carvepathList[p][d][0];
+//				y = carvepathList[p][d][1];
+//				for(int k=segment; k > 0 ; k--)
+//				{
+//					//if( cvGetReal2D( carve, y, x) ) continue;
+//					
+//					x -= sin( angle );
+//					y -= cos( angle );		
+//
+//					cvSetReal2D( carve, y, x, compress( k, beta )*depthSpreadRatio );
+//					//cvLine( carve, p1, cvPoint( x, y ), cvScalarAll(1) );					
+//				}
+//			}
+//			//CvPoint p2 = cvPoint( carvepathList[p][d-1][0], carvepathList[p][d-1][1] );
+//			cvSetReal2D( r, p1.y, p1.x, 255 );
+//			
+//
+//			//cvLine( r, p1, p2, cvScalar(255) );
+//
+//			//cvSetReal2D( carve, y, x, 
+//		}
+//	}
+//
+//	//for(int i=0; i < width; i++)
+//	//{
+//	//	for(int j=0; j < height; j++)
+//	//	{
+//	//		if( cvGetReal2D( r, height - 1 - j, i) )
+//	//		{
+//	//		
+//	//			int end=0;
+//	//			int x,y;
+//	//			for(int m= -1; m <= 1 && end <=1 ; m++)
+//	//			{
+//	//				for(int n = -1; n <= 1 && end <=1 ; n++)
+//	//				{
+//	//					if( m!=0 || n!=0 ) 
+//	//					{						
+//	//						if( cvGetReal2D( r, height - 1 - (j+m), i+n) )
+//	//						{
+//	//							end++;	
+//	//							if( end == 2 )
+//	//							{
+//	//								if( x == i+n )
+//	//								{
+//	//									if( abs( y - (j+m) ) == 1 )
+//	//									{
+//	//										end--;
+//	//									}
+//	//								}
+//	//								else if( y == j+m )
+//	//								{
+//	//									if( abs( x - (i+n) ) == 1 )
+//	//									{
+//	//										end--;
+//	//									}
+//	//								}
+//	//							}
+//
+//	//							x = i+n;
+//	//							y = j+m;
+//	//						}				
+//	//					}
+//
+//	//				}
+//	//			}
+//
+//	//			if( end == 1 )
+//	//			{
+//	//				float length = cvGetReal2D( g, height - 1 - j, i );
+//	//				if(  round( length ) != 0.0 )
+//	//				{
+//	//					double depthRatio = depth / compress( length, beta );
+//	//					cvSetReal2D( carve, height - 1 - j, i, compress( 1, beta )*depthRatio );
+//	//				
+//	//					nextNeighbor( r, g, angleImg, i, j, 2, depth, beta, spread, gamma );
+//	//				}
+//	//				/*double before = cvGetReal2D( r, height - 1 - j, i);
+//	//				int min=255;
+//	//				int height = src->height;
+//
+//	//				int i, j;
+//	//				for(int m= -1; m <= 1; m++)
+//	//				{
+//	//					for(int n = -1; n <= 1; n++)
+//	//					{
+//	//						if( m==0 && n==0 ) break;
+//
+//	//						double red = cvGetReal2D( r, height - 1 - (y+n), x+m );
+//	//						if( red > before && red < min )
+//	//						{
+//	//							min = red;
+//	//							i = x+m;
+//	//							j = y+n;
+//	//						}
+//	//					}
+//	//				}
+//	//				cvSetReal2D( carve, height - 1 - j, i, compress( length, beta )*depthRatio );
+//	//				nextNeighbor( src, i, j, length+1);*/				
+//	//				
+//	//			}
+//	//		}
+//
+//	//	}
+//	//}
+//
+//	cvMax( carve, carve2, carve);
+//
+//	double min, max;
+//	cvMinMaxLoc(carve, &min, &max);
+//	double scale = 255.0 / (max - min);   
+//	double shift = -min * scale;  
+//	IplImage *show =  cvCreateImage( cvGetSize(carve),  IPL_DEPTH_8U, 1);
+//	cvConvertScaleAbs(carve, show, scale, shift);	
+//
+//	cvNamedWindow("Carve Depth", 1);
+//	cvShowImage("Carve Depth", show);
+//
+//	cvMerge(b, g, r, 0, pathImg);
+//	cvNamedWindow("Carve Path", 1);
+//	cvShowImage("Carve Path", pathImg);
+//}
+void carvePoint(IplImage *dst, int x, int y, double value)
+{
+	if (value > cvGetReal2D( dst, y, x))
+	{
+		cvSetReal2D( dst, y, x, value );
+	}
+}
+
+enum spread_paras
+{
+	LENGTH, ANGLE, SEGMENT, DEPTH_SPREAD_RATION, BETA, PARAS_SIZE
+};
+void carveSpread(IplImage *dst, float x, float y, double paras[PARAS_SIZE])
+{
+	int height = dst->height;
+	int width = dst->width;
+	
+	float initialX=x;
+	float initialY=y;
+	
+	if(paras[SEGMENT] <= paras[LENGTH]   && paras[DEPTH_SPREAD_RATION] <=1)
+	{
+		for(int k=round( paras[SEGMENT] ); k > 0 ; k--)
+		{
+			//if( cvGetReal2D( carve, y, x) ) continue;
+			
+			x += sin( paras[ANGLE] );
+			y += cos( paras[ANGLE] );
+			
+			if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+			{
+				carvePoint( dst, round(x), round(y), compress( k, paras[BETA] )*paras[DEPTH_SPREAD_RATION] );
+			}
+			else
+			{
+				break;
+			}				
+		}
+
+		x = initialX;
+		y = initialY;
+
+		for(int k=round( paras[SEGMENT] ); k > 0 ; k--)
+		{
+			//if( cvGetReal2D( carve, y, x) ) continue;
+			
+			x -= sin( paras[ANGLE] );
+			y -= cos( paras[ANGLE] );	
+
+			if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+			{
+				carvePoint( carve, round(x), round(y), compress( k, paras[BETA] )*paras[DEPTH_SPREAD_RATION] );
+			}
+			else
+			{
+				break;
+			}
+
+		}
+	}
+}
+
+void generateCarve( IplImage *angleImg, float weight=1, float depth=0.3, float beta=0.2, float spread=0.33, float gamma=1 )
 {
 	int height = angleImg->height;
 	int width = angleImg->width;
-
+	
 	carve = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
 	carve2 = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
+	cvSetZero( carve );
 	IplImage *pathImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 3);
 	IplImage *r = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
 	IplImage *g = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
 	IplImage *b = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+
+	IplImage *depthImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 3);
+	IplImage *depthR = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	IplImage *depthG = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+	IplImage *depthB = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+
+#if CARVEMODEL_UPSAMPLE
+	cvCopy(sample2, r);
+	cvCopy(sample2, g);
+	cvCopy(sample2, b);
+	cvCopy(sample2, depthR);
+	cvCopy(sample2, depthG);
+	cvCopy(sample2, depthB);
+#else
 	cvCopy(sample, r);
 	cvCopy(sample, g);
 	cvCopy(sample, b);
+	cvCopy(sample, depthR);
+	cvCopy(sample, depthG);
+	cvCopy(sample, depthB);
+#endif
+	
+	vector<StreamLine> s;
 
-	vector< vector< vector<int> > >  carvepathList;
-
-	for(int i=0; i < width; i++)
+#if CARVEMODEL_UPSAMPLE
+	for(int i=0; i<sample2->width; i++)
 	{
-		for(int j=0; j < height; j++)
+		for(int j=0; j<sample2->height; j++)
 		{
-			if( !bgMask[ i*height + j ] )
+			if( cvGetReal2D(sample2, j, i) )
 			{
-				double brightness = cvGetReal2D(sample, height - 1 - j, i);
-				if( brightness )
-				{
-					//cvSetReal2D(r, height - 1 - j, i, 255);
-					
-					double multiple = abs( angle / (M_PI/4) );
-
-					int length = round( 0.25 * sqrt( (float)height*width ) * samplingRatio + 15.0 * (1 - brightness/255) );
-					float x = i;
-					float y = height - 1 - j;
-
-					vector< pair<CvPoint, CvPoint> > segmentList;
-					int k;
-					float offset;
-					for( k=length; k > 0 ; k-round(offset) )
-					{
-						CvPoint p1 = cvPoint( x, y );
-						
-						double angle = cvGetReal2D(angleImg, y, x);
-						if(angle == 100) break;
-						x += cos( angle );
-						y += sin( angle );
-
-						/*if(  cvGetReal2D( r, y, x) == 0 )
-						{*/
-							segmentList.push_back( pair<CvPoint, CvPoint>(p1, cvPoint( round(x), round(y) )) );
-							/*if( k != 1)
-							{
-								cvLine( b, p1, cvPoint( x, y ), cvScalarAll(254 - length + k) );					
-							}
-							else
-							{
-								cvLine( b, p1, cvPoint( x, y ), cvScalarAll(1) );
-							}*/
-							
-							//cvLine( g, p2, cvPoint( xT, yT ), cvScalarAll(255) );
-						/*}
-						else
-						{
-							break;
-						}*/
-
-						offset = sqrt( pow( (float)p1.x - x, 2 ) + pow( (float)p1.y - y, 2 ) );
-					}
-					length -= k; 
+				double brightness = cvGetReal2D(sample2, j, i);
+				int L = round( 0.5 * sqrt( (float)height*width ) * samplingRatio + 15.0 * (1 - brightness/255) );
 				
-					for(int s=0; s < segmentList.size(); s++)
-					{
-						double angle = cvGetReal2D(angleImg, segmentList[s].first.y, segmentList[s].first.x);
-						x = segmentList[s].first.x - sin( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].first.x-i, 2) + pow((float)segmentList[s].first.y-j, 2) ) );
-						y = segmentList[s].first.y - cos( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].first.x-i, 2) + pow((float)segmentList[s].first.y-j, 2) ) );
-						segmentList[s].first.x = x;
-						segmentList[s].first.y = y;
-						
-						angle = cvGetReal2D(angleImg, segmentList[s].second.y, segmentList[s].second.x);
-						x = segmentList[s].second.x - sin( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].second.x-i, 2) + pow((float)segmentList[s].second.y-j, 2) ) );
-						y = segmentList[s].second.y - cos( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].second.x-i, 2) + pow((float)segmentList[s].second.y-j, 2) ) );
-						segmentList[s].second.x = x;
-						segmentList[s].second.y = y;
-					}
-
-					vector< vector<int> > path;
-					for(int s=0; s < segmentList.size(); s++)
-					{
-						cvLine( g, segmentList[s].first, segmentList[s].second, cvScalarAll(length - s) );
-
-						/*if( s < length - 1)
-						{
-							cvLine( r, segmentList[s].first, segmentList[s].second, cvScalarAll(255 - s) );					
-						}
-						else
-						{
-							cvLine( r, segmentList[s].first, segmentList[s].second, cvScalarAll(1) );
-						}*/
-						
-						vector<int> d;
-						d.push_back(segmentList[s].first.x);
-						d.push_back(segmentList[s].first.y);
-						d.push_back(length);
-						path.push_back( d );
-					}
-					segmentList.clear();
-					if( path.size() >= 1 )
-					{
-						carvepathList.push_back( path );
-						path.clear();
-					}
-
-					x = i;
-					y = height - 1 - j;
-					
-					for(k=length; k > 0 ; k--)
-					{
-						CvPoint p1 = cvPoint( x, y );
-						double angle = cvGetReal2D(angleImg, y, x);
-						if(angle == 100) break;
-						x -= cos( angle );
-						y -= sin( angle );
-
-						/*if(  cvGetReal2D( r, y, x) == 0 )
-						{*/
-							segmentList.push_back( pair<CvPoint, CvPoint>(p1, cvPoint( round(x), round(y) )) );
-							//cvLine( g, p1, cvPoint( x, y ), cvScalarAll(length) );
-							//cvLine( g, p2, cvPoint( xT, yT ), cvScalarAll(255) );
-						/*}
-						else
-						{
-							break;
-						}*/
-					}
-
-					for(int s=0; s < segmentList.size(); s++)
-					{
-						double angle = cvGetReal2D(angleImg, segmentList[s].first.y, segmentList[s].first.x);
-						x = segmentList[s].first.x + sin( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].first.x-i, 2) + pow((float)segmentList[s].first.y-j, 2) ) );
-						y = segmentList[s].first.y + cos( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].first.x-i, 2) + pow((float)segmentList[s].first.y-j, 2) ) );
-						segmentList[s].first.x = x;
-						segmentList[s].first.y = y;
-
-						angle = cvGetReal2D(angleImg, segmentList[s].second.y, segmentList[s].second.x);
-						x = segmentList[s].second.x + sin( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].second.x-i, 2) + pow((float)segmentList[s].second.y-j, 2) ) );
-						y = segmentList[s].second.y + cos( angle ) * M_PI/2 * sin( weight * sqrt( pow((float)segmentList[s].second.x-i, 2) + pow((float)segmentList[s].second.y-j, 2) ) );
-						segmentList[s].second.x = x;
-						segmentList[s].second.y = y;
-					}
-
-					for(int s=0; s < segmentList.size(); s++)
-					{
-						cvLine( g, segmentList[s].first, segmentList[s].second, cvScalarAll(length - s) );
-
-						/*if( s < length - 1)
-						{
-							cvLine( r, segmentList[s].first, segmentList[s].second, cvScalarAll(255 - s) );					
-						}
-						else
-						{
-							cvLine( r, segmentList[s].first, segmentList[s].second, cvScalarAll(1) );
-						}*/
-
-						/*const int arr[] = {segmentList[s].first.x, segmentList[s].first.y, s+1}; 
-						vector<int> d (arr, arr + sizeof(arr) / sizeof(arr[0]) );*/
-						vector<int> d;
-						d.push_back(segmentList[s].first.x);
-						d.push_back(segmentList[s].first.y);
-						d.push_back(length);
-						path.push_back( d );
-					}
-					if( path.size() >= 1 )
-					{
-						carvepathList.push_back( path );
-					}
-
-					IplImage *bgImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
-					Relief2Image( bgMask, bgImg);
-					bgFilter( r, bgImg );
-				
-				}
+				StreamLine tempS;
+				tempS.GenStreamLine2(i, j, L);
+				s.push_back(tempS);
 			}
-
 		}
 	}
-
-	for(int p=0; p < carvepathList.size(); p++)
+#else
+	for(int i=0; i<sample->width; i++)
 	{
-		for(int d=carvepathList[p].size()-1; d >= 0; d--)
+		for(int j=0; j<sample->height; j++)
 		{
-			CvPoint p1 = cvPoint( carvepathList[p][d][0], carvepathList[p][d][1] );
-
-			int x = carvepathList[p][d][0];
-			int y = carvepathList[p][d][1];
-			float length = carvepathList[p][d][2];
-			if( round( length ) != 0.0 )
+			if( cvGetReal2D(sample, j, i) )
 			{
-				double depthRatio = depth / compress( length, beta );
-				cvSetReal2D( carve, y, x, compress( length - d, beta )*depthRatio );
-
-				double spreadRatio = spread / compress( length, gamma );
-				double segment = length * compress( length - d, gamma )*spreadRatio;
-				double angle = cvGetReal2D( angleImg, y, x );
-
-				double depthSpreadRatio = depth / compress( spread*length, beta );
+				double brightness = cvGetReal2D(sample, j, i);
+				int L = round( 1 * sqrt( (float)height*width ) * samplingRatio + 30.0 * (1 - brightness/255) );
 				
-				for(int k=segment; k > 0 ; k--)
-				{
-					//if( cvGetReal2D( carve, y, x) ) continue;
-					
-					x += sin( angle );
-					y += cos( angle );		
-
-
-					
-					/*if( cvGetReal2D( carve, y, x) == 0.0 )
-					{*/
-						cvSetReal2D( carve, y, x, compress( k, beta )*depthSpreadRatio );
-					//}
-					//cvLine( carve, p1, cvPoint( x, y ), cvScalarAll(1) );					
-				}
-
-				x = carvepathList[p][d][0];
-				y = carvepathList[p][d][1];
-				for(int k=segment; k > 0 ; k--)
-				{
-					//if( cvGetReal2D( carve, y, x) ) continue;
-					
-					x -= sin( angle );
-					y -= cos( angle );		
-
-					cvSetReal2D( carve, y, x, compress( k, beta )*depthSpreadRatio );
-					//cvLine( carve, p1, cvPoint( x, y ), cvScalarAll(1) );					
-				}
+				StreamLine tempS;
+				tempS.GenStreamLine(i, j, L);
+				s.push_back(tempS);
 			}
-			//CvPoint p2 = cvPoint( carvepathList[p][d-1][0], carvepathList[p][d-1][1] );
-			cvSetReal2D( r, p1.y, p1.x, 255 );
+		}
+	}
+#endif
+	
+	for(int p=0; p < s.size(); p++)
+	{
+		float length = 0;
+
+		double brightness;
+#if CARVEMODEL_UPSAMPLE
+		brightness = cvGetReal2D(sample2, s[p].origin.coord[1], s[p].origin.coord[0]);
+#else
+		brightness = cvGetReal2D(sample, s[p].origin.coord[1], s[p].origin.coord[0]);
+#endif
+
+		int L = round( 1 * sqrt( (float)height*width ) * samplingRatio + 30.0 * (1 - brightness/255) );
+		cout << L << " ";
+
+		/*****累計點與點之間的長度*****/
+		int d;
+		for(d=0; d < L-1; d++)
+		{
+			if( s[p].fwd[d+1].coord[0] == -1 || s[p].fwd[d+1].coord[1] == -1 ) break;
+			else
+			{
+				length += sqrt( pow(s[p].fwd[d].coord[0] - s[p].fwd[d+1].coord[0], 2) + pow(s[p].fwd[d].coord[1] - s[p].fwd[d+1].coord[1], 2) );
+			}
+		}
+		if( s[p].fwd[0].coord[0] != -1 && s[p].fwd[0].coord[1] != -1 )
+		{
+			length += sqrt( pow(s[p].fwd[0].coord[0] - s[p].origin.coord[0], 2) + pow(s[p].fwd[0].coord[1] - s[p].origin.coord[1], 2) );
+		}
+		/*****累計點與點之間的長度*****/
+		
+		
+		float x, y;
+		double amplitude = M_PI/2;
+		x = s[p].origin.coord[0];
+		y = s[p].origin.coord[1];
+
+		Stroke str;
+		str.radius = 1;
+		str.curveType = CUBIC_BSPLINE;
+		str.z = 0;    // Z coordinate for Z-buffering
+		str.useTexture = false;  // disable texturing
+
+		str.add(x,y);
+
+		if( round(length) != 0)
+		{
+			CvPoint p1 = cvPoint( s[p].fwd[ d ].coord[0], s[p].fwd[ d ].coord[1] );
 			
+			float offset=0;
+			
+			for(/*int d=round(length-1)*/; d >= 0; d--)
+			{
+				if( s[p].fwd[d].coord[0] == -1 || s[p].fwd[d].coord[1] == -1 ) continue;
+				
+				CvPoint p2 = cvPoint( s[p].fwd[d].coord[0], s[p].fwd[d].coord[1] );
+				offset += sqrt( pow( (float)p1.x - p2.x, 2) + pow((float)p1.y - p2.y, 2) ) ;
+				float extend = length-offset;
+				p1 = p2;
 
-			//cvLine( r, p1, p2, cvScalar(255) );
+				x = s[p].fwd[d].coord[0];
+				y = s[p].fwd[d].coord[1];
 
-			//cvSetReal2D( carve, y, x, 
+				if( x == -1 || y == -1 || round(x) < 0 || round(y) < 0 || round(x) > width || round(y) > height ) break;
+				
+				float x2, y2, xInterval, yInterval;
+				if(d)
+				{
+					x2 = s[p].fwd[d-1].coord[0];
+					y2 = s[p].fwd[d-1].coord[1];
+				}
+				else
+				{
+					x2 = s[p].origin.coord[0];
+					y2 = s[p].origin.coord[1];
+				}
+				xInterval = (x + x2)/2;
+				yInterval = (y + y2)/2;
+
+				double angle = cvGetReal2D( angleImg, round(y), round(x) );		
+				if(-M_PI < angle && angle < M_PI)
+				{
+
+					x += sin( angle ) * amplitude * sin( weight * extend );
+					y += cos( angle ) * amplitude * sin( weight * extend );
+
+					if( x != -1 && y != -1 && round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+					{
+						cvSetReal2D( r, y, x, 255 );
+#if USE_STROKE
+						str.add(x, y);
+#endif
+						
+						double depthRatio = depth / compress( L, beta );
+						carvePoint( carve, round(x), round(y), compress( offset, beta )*depthRatio );
+						//cvSetReal2D( carve, round(y), round(x), compress( offset, beta )*depthRatio );
+						cvSetReal2D( depthR, round(y), round(x), 255 );
+
+						double spreadRatio = spread / compress( length, gamma );
+						double segment = length * compress( offset, gamma )*spreadRatio;
+						double depthSpreadRatio = compress( offset, beta )*depthRatio  /  compress( segment, beta );
+
+						double paras[PARAS_SIZE];	//LENGTH, ANGLE, SEGMENT, DEPTH_SPREAD_RATION, BETA
+						paras[LENGTH] = length;
+						paras[ANGLE] = angle;
+						paras[SEGMENT] = length * compress( offset, gamma )*spreadRatio;
+						paras[DEPTH_SPREAD_RATION] = compress( offset, beta )*depthRatio  /  compress( paras[SEGMENT] , beta );
+						paras[BETA] = beta;
+
+						//double depthSpreadRatio = depth / compress( spread*length, beta );
+						//cout << "o" << segment << "\t";
+						carveSpread(carve, x, y, paras);
+						
+						//if(segment <= length   && depthSpreadRatio <=1)
+						//{
+						//	for(int k=round(segment); k > 0 ; k--)
+						//	{
+						//		//if( cvGetReal2D( carve, y, x) ) continue;
+						//		
+						//		x += sin( angle );
+						//		y += cos( angle );
+						//		
+						//		if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+						//		{
+						//			carvePoint( carve, round(x), round(y), compress( k, beta )*depthSpreadRatio );
+						//			//cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+						//			cvSetReal2D( depthR, round(y), round(x), 255 );
+						//			cvSetReal2D( depthG, round(y), round(x), 255 );
+						//		}
+						//		else
+						//		{
+						//			break;
+						//		}
+						//		//cvLine( carve, p1, cvPoint( x, y ), cvScalarAll(1) );					
+						//	}
+
+						//	x = s[p].fwd[d].coord[0];
+						//	y = s[p].fwd[d].coord[1];
+
+						//	x += sin( angle ) * amplitude * sin( weight * extend );
+						//	y += cos( angle ) * amplitude * sin( weight * extend );
+
+						//	for(int k=round(segment); k > 0 ; k--)
+						//	{
+						//		//if( cvGetReal2D( carve, y, x) ) continue;
+						//		
+						//		x -= sin( angle );
+						//		y -= cos( angle );		
+
+						//		if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+						//		{
+						//			carvePoint( carve, round(x), round(y), compress( k, beta )*depthSpreadRatio );
+						//			//cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+						//			cvSetReal2D( depthG, round(y), round(x), 255 );
+						//		}
+						//		else
+						//		{
+						//			break;
+						//		}
+
+						//	}
+						//}
+					
+					//CvPoint p2 = cvPoint( carvepathList[p][d-1][0], carvepathList[p][d-1][1] );
+					
+					}
+				}
+#if DOT_INTERVAL
+				if( xInterval == -1 || yInterval == -1 || round(xInterval) < 0 || round(yInterval) < 0 || round(xInterval) > width || round(yInterval) > height ) break;
+
+				double angle2 = cvGetReal2D( angleImg, round(y2), round(x2) );
+				double angleInter = (angle + angle2)/2;
+				if(-M_PI < angleInter && angleInter < M_PI)
+				{
+					xInterval += sin( angleInter ) * amplitude * sin( weight * extend );
+					yInterval += cos( angleInter ) * amplitude * sin( weight * extend );
+
+					if( xInterval != -1 && yInterval != -1 && round(xInterval) >= 0 && round(yInterval) >= 0 && round(xInterval) < width && round(yInterval) < height )
+					{					
+						double depthRatio = depth / compress( L, beta );
+						carvePoint( carve, round(xInterval), round(yInterval), compress( offset, beta )*depthRatio );
+
+						double spreadRatio = spread / compress( length, gamma );
+						double segment = length * compress( offset, gamma )*spreadRatio;
+						double depthSpreadRatio = compress( offset, beta )*depthRatio  /  compress( segment, beta );
+
+						double paras[PARAS_SIZE];	//LENGTH, ANGLE, SEGMENT, DEPTH_SPREAD_RATION, BETA
+						paras[LENGTH] = length;
+						paras[ANGLE] = angle;
+						paras[SEGMENT] = length * compress( offset, gamma )*spreadRatio;
+						paras[DEPTH_SPREAD_RATION] = compress( offset, beta )*depthRatio  /  compress( paras[SEGMENT] , beta );
+						paras[BETA] = beta;
+
+						carveSpread(carve, xInterval, yInterval, paras);
+					}
+				}
+#endif
+			}
+
+			strList.push_back(str);
+			str.clear();
+		}
+
+		x = s[p].origin.coord[0];
+		y = s[p].origin.coord[1];
+		str.clear();
+		str.add(x,y);
+
+		length = 0;
+		for(d=0; d < L-1; d++)
+		{
+			if( s[p].bwd[d+1].coord[0] == -1 || s[p].bwd[d+1].coord[1] == -1 ) break;
+			else
+			{
+				length += sqrt( pow(s[p].bwd[d].coord[0] - s[p].bwd[d+1].coord[0], 2) + pow(s[p].bwd[d].coord[1] - s[p].bwd[d+1].coord[1], 2) );
+			}
+		}
+		if( s[p].bwd[0].coord[0] != -1 && s[p].bwd[0].coord[1] != -1 )
+		{
+			length += sqrt( pow(s[p].bwd[0].coord[0] - s[p].origin.coord[0], 2) + pow(s[p].bwd[0].coord[1] - s[p].origin.coord[1], 2) );
+		}
+		
+		if(round(length) != 0)
+		{
+			CvPoint p1 = cvPoint( s[p].bwd[ d ].coord[0], s[p].bwd[ d ].coord[1] );
+			float offset=0;
+
+			for(/*int d=round(length-1)*/; d >= 0; d--)
+			{
+				if( s[p].bwd[d].coord[0] == -1 || s[p].bwd[d].coord[1] == -1 ) continue;
+				
+				CvPoint p2 = cvPoint( s[p].bwd[d].coord[0], s[p].bwd[d].coord[1] );
+				offset += sqrt( pow( (float)p1.x - p2.x, 2) + pow((float)p1.y - p2.y, 2) ) ;
+				float extend = length-offset;
+				p1 = p2;
+
+				x = s[p].bwd[d].coord[0];
+				y = s[p].bwd[d].coord[1];
+				
+				if( x == -1 || y == -1 || round(x) < 0 || round(y) < 0 || round(x) > width || round(y) > height ) break;
+
+				float x2, y2, xInterval, yInterval;
+				if(d)
+				{
+					x2 = s[p].bwd[d-1].coord[0];
+					y2 = s[p].bwd[d-1].coord[1];
+				}
+				else
+				{
+					x2 = s[p].origin.coord[0];
+					y2 = s[p].origin.coord[1];
+				}
+				xInterval = (x + x2)/2;
+				yInterval = (y + y2)/2;
+				
+				double angle = cvGetReal2D( angleImg, round(y), round(x) );		
+				if(-M_PI < angle && angle < M_PI)
+				{
+
+					x -= sin( angle ) * amplitude * sin( weight * extend );
+					y -= cos( angle ) * amplitude * sin( weight * extend );
+					
+					
+					if( x != -1 && y != -1 && round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+					{
+						cvSetReal2D( r, y, x, 255 );
+#if USE_STROKE
+						str.add(x, y);
+#endif
+
+						double depthRatio = depth / compress( L, beta );
+						carvePoint( carve, round(x), round(y), compress( offset, beta )*depthRatio );
+						//cvSetReal2D( carve, round(y), round(x), compress( offset, beta )*depthRatio );
+						cvSetReal2D( depthG, round(y), round(x), 255 );
+						cvSetReal2D( depthB, round(y), round(x), 255 );
+
+						double spreadRatio = spread / compress( length, gamma );
+						double segment = length * compress( offset, gamma )*spreadRatio;
+						double depthSpreadRatio = compress( offset, beta )*depthRatio /  compress( segment, beta );
+
+						double paras[PARAS_SIZE];	//LENGTH, ANGLE, SEGMENT, DEPTH_SPREAD_RATION, BETA
+						paras[LENGTH] = length;
+						paras[ANGLE] = angle;
+						paras[SEGMENT] = length * compress( offset, gamma )*spreadRatio;
+						paras[DEPTH_SPREAD_RATION] = compress( offset, beta )*depthRatio  /  compress( paras[SEGMENT] , beta );
+						paras[BETA] = beta;
+
+						//double depthSpreadRatio = depth / compress( spread*length, beta );
+						//cout << "o" << segment << "\t";
+						carveSpread(carve, x, y, paras);
+
+						//double depthSpreadRatio = depth / compress( spread*length, beta );
+						//cout << "o" << segment << "\t";
+						//if(segment <= length   && depthSpreadRatio <=1)
+						//{
+						//	for(int k=round(segment); k > 0 ; k--)
+						//	{
+						//		//if( cvGetReal2D( carve, y, x) ) continue;
+						//		
+						//		x += sin( angle );
+						//		y += cos( angle );		
+
+						//		
+						//		if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+						//		{
+						//			carvePoint( carve, round(x), round(y), compress( k, beta )*depthSpreadRatio );
+						//			//cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+						//			cvSetReal2D( depthB, round(y), round(x), 255 );
+						//		}
+						//		else
+						//		{
+						//			break;
+						//		}
+						//		//cvLine( carve, p1, cvPoint( x, y ), cvScalarAll(1) );					
+						//	}
+
+						//	x = s[p].bwd[d].coord[0];
+						//	y = s[p].bwd[d].coord[1];
+
+						//	x -= sin( angle ) * amplitude * sin( weight * extend );
+						//	y -= cos( angle ) * amplitude * sin( weight *extend );
+
+						//	for(int k=round(segment); k > 0 ; k--)
+						//	{
+						//		//if( cvGetReal2D( carve, y, x) ) continue;
+						//		
+						//		x -= sin( angle );
+						//		y -= cos( angle );		
+
+						//		if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+						//		{
+						//			carvePoint( carve, round(x), round(y), compress( k, beta )*depthSpreadRatio );
+						//			//cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+						//			cvSetReal2D( depthB, round(y), round(x), 255 );
+						//			cvSetReal2D( depthR, round(y), round(x), 255 );
+						//		}
+						//		else
+						//		{
+						//			break;
+						//		}
+
+						//	}
+						//}
+					}
+				
+				//CvPoint p2 = cvPoint( carvepathList[p][d-1][0], carvepathList[p][d-1][1] );
+				
+				}
+#if DOT_INTERVAL
+				if( x2 == -1 || y2 == -1 || round(x2) < 0 || round(y2) < 0 || round(x2) > width || round(y2) > height ) break;
+				if( xInterval == -1 || yInterval == -1 || round(xInterval) < 0 || round(yInterval) < 0 || round(xInterval) > width || round(yInterval) > height ) break;
+
+				double angle2 = cvGetReal2D( angleImg, round(y2), round(x2) );
+				double angleInter = (angle + angle2)/2;
+				if(-M_PI < angleInter && angleInter < M_PI)
+				{
+					xInterval += sin( angleInter ) * amplitude * sin( weight * extend );
+					yInterval += cos( angleInter ) * amplitude * sin( weight * extend );
+
+					if( xInterval != -1 && yInterval != -1 && round(xInterval) >= 0 && round(yInterval) >= 0 && round(xInterval) < width && round(yInterval) < height )
+					{					
+						double depthRatio = depth / compress( L, beta );
+						carvePoint( carve, round(xInterval), round(yInterval), compress( offset, beta )*depthRatio );
+						cvSetReal2D( depthR, round(yInterval), round(xInterval), 255 );
+						cvSetReal2D( depthG, round(yInterval), round(xInterval), 255 );
+
+						double spreadRatio = spread / compress( length, gamma );
+						double segment = length * compress( offset, gamma )*spreadRatio;
+						double depthSpreadRatio = compress( offset, beta )*depthRatio  /  compress( segment, beta );
+
+						double paras[PARAS_SIZE];	//LENGTH, ANGLE, SEGMENT, DEPTH_SPREAD_RATION, BETA
+						paras[LENGTH] = length;
+						paras[ANGLE] = angle;
+						paras[SEGMENT] = length * compress( offset, gamma )*spreadRatio;
+						paras[DEPTH_SPREAD_RATION] = compress( offset, beta )*depthRatio  /  compress( paras[SEGMENT] , beta );
+						paras[BETA] = beta;
+
+						carveSpread(carve, xInterval, yInterval, paras);
+					}
+				}
+#endif
+			}
+
+			strList.push_back(str);
+		}
+
+		
+		if(round(length) != 0)
+		{
+			x = s[p].origin.coord[0];
+			y = s[p].origin.coord[1];
+			double depthRatio = depth / compress( L, beta );
+			double segment = length * spread;
+			double depthSpreadRatio = compress( length, beta )*depthRatio /  compress( segment, beta );
+			cvSetReal2D( r, y, x, 255 );
+#if USE_STROKE
+			str.add(x, y);
+#endif
+			carvePoint( carve, round(x), round(y), compress( length, beta )*depthRatio );
+			//cvSetReal2D( carve, round(y), round(x), compress( length, beta )*depthRatio );
+			cvSetReal2D( depthR, round(y), round(x), 255 );
+			cvSetReal2D( depthG, round(y), round(x), 255 );
+			cvSetReal2D( depthB, round(y), round(x), 255 );
+			
+			double angle = cvGetReal2D( angleImg, round(y), round(x) );
+			//cout << "l" << segment << "\t";
+			if(-M_PI < angle && angle < M_PI  && depthSpreadRatio <=1)
+			{		
+				for(int k=round(segment); k > 0 ; k--)
+				{
+					x += sin( angle );
+					y += cos( angle );
+					if( round(x) < 0 || round(y) < 0 || round(x) >= width || round(y) >= height ) break;
+					carvePoint( carve, round(x), round(y), compress( k, beta )*depthSpreadRatio );
+					//cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+					cvSetReal2D( depthR, round(y), round(x), 255 );
+					cvSetReal2D( depthG, round(y), round(x), 255 );
+					cvSetReal2D( depthB, round(y), round(x), 255 );
+				}
+
+				x = s[p].origin.coord[0];
+				y = s[p].origin.coord[1];
+
+				for(int k=round(segment); k > 0 ; k--)
+				{
+					x -= sin( angle );
+					y -= cos( angle );
+					if( round(x) < 0 || round(y) < 0 || round(x) >= width || round(y) >= height ) break;
+					carvePoint( carve, round(x), round(y), compress( k, beta )*depthSpreadRatio );
+					//cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+					cvSetReal2D( depthR, round(y), round(x), 255 );
+					cvSetReal2D( depthG, round(y), round(x), 255 );
+					cvSetReal2D( depthB, round(y), round(x), 255 );
+				}
+			}
 		}
 	}
-
-	//for(int i=0; i < width; i++)
-	//{
-	//	for(int j=0; j < height; j++)
-	//	{
-	//		if( cvGetReal2D( r, height - 1 - j, i) )
-	//		{
-	//		
-	//			int end=0;
-	//			int x,y;
-	//			for(int m= -1; m <= 1 && end <=1 ; m++)
-	//			{
-	//				for(int n = -1; n <= 1 && end <=1 ; n++)
-	//				{
-	//					if( m!=0 || n!=0 ) 
-	//					{						
-	//						if( cvGetReal2D( r, height - 1 - (j+m), i+n) )
-	//						{
-	//							end++;	
-	//							if( end == 2 )
-	//							{
-	//								if( x == i+n )
-	//								{
-	//									if( abs( y - (j+m) ) == 1 )
-	//									{
-	//										end--;
-	//									}
-	//								}
-	//								else if( y == j+m )
-	//								{
-	//									if( abs( x - (i+n) ) == 1 )
-	//									{
-	//										end--;
-	//									}
-	//								}
-	//							}
-
-	//							x = i+n;
-	//							y = j+m;
-	//						}				
-	//					}
-
-	//				}
-	//			}
-
-	//			if( end == 1 )
-	//			{
-	//				float length = cvGetReal2D( g, height - 1 - j, i );
-	//				if(  round( length ) != 0.0 )
-	//				{
-	//					double depthRatio = depth / compress( length, beta );
-	//					cvSetReal2D( carve, height - 1 - j, i, compress( 1, beta )*depthRatio );
-	//				
-	//					nextNeighbor( r, g, angleImg, i, j, 2, depth, beta, spread, gamma );
-	//				}
-	//				/*double before = cvGetReal2D( r, height - 1 - j, i);
-	//				int min=255;
-	//				int height = src->height;
-
-	//				int i, j;
-	//				for(int m= -1; m <= 1; m++)
-	//				{
-	//					for(int n = -1; n <= 1; n++)
-	//					{
-	//						if( m==0 && n==0 ) break;
-
-	//						double red = cvGetReal2D( r, height - 1 - (y+n), x+m );
-	//						if( red > before && red < min )
-	//						{
-	//							min = red;
-	//							i = x+m;
-	//							j = y+n;
-	//						}
-	//					}
-	//				}
-	//				cvSetReal2D( carve, height - 1 - j, i, compress( length, beta )*depthRatio );
-	//				nextNeighbor( src, i, j, length+1);*/				
-	//				
-	//			}
-	//		}
-
-	//	}
-	//}
-
-	cvMax( carve, carve2, carve);
 
 	double min, max;
 	cvMinMaxLoc(carve, &min, &max);
@@ -3434,32 +4132,40 @@ void generateCarve( IplImage *angleImg, float weight, float depth=0.1, float bet
 	cvMerge(b, g, r, 0, pathImg);
 	cvNamedWindow("Carve Path", 1);
 	cvShowImage("Carve Path", pathImg);
+
+	cvMerge(depthB, depthG, depthR, 0, depthImg);
+	cvNamedWindow("Carve Type", 1);
+	cvShowImage("Carve Type", depthImg);
 }
 
-void generateCarve( IplImage *angleImg, float depth=0.1, float beta=0.1, float spread=0.33, float gamma=1 )
+void generateCarve2( IplImage *angleImg, float weight=0.25, float depth=0.3, float beta=0.2, float spread=0.33, float gamma=1 )
 {
 	int height = angleImg->height;
 	int width = angleImg->width;
 	
 	carve = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
 	carve2 = cvCreateImage( cvSize(width, height), IPL_DEPTH_32F, 1);
+	cvSetZero( carve );
 	IplImage *pathImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 3);
 	IplImage *r = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
 	IplImage *g = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
 	IplImage *b = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
-	cvCopy(sample, r);
-	cvCopy(sample, g);
-	cvCopy(sample, b);
+	cvCopy(sample2, r);
+	cvCopy(sample2, g);
+	cvCopy(sample2, b);
 	
 	vector<StreamLine> s;
-	for(int i=0; i<sample->width; i++)
+	for(int i=0; i<sample2->width; i++)
 	{
-		for(int j=0; j<sample->height; j++)
+		for(int j=0; j<sample2->height; j++)
 		{
-			if( cvGetReal2D(sample, j, i) )
+			if( cvGetReal2D(sample2, j, i) )
 			{
+				double brightness = cvGetReal2D(sample2, j, i);
+				int L = round( 0.5 * sqrt( (float)height*width ) * samplingRatio + 15.0 * (1 - brightness/255) );
+				
 				StreamLine tempS;
-				tempS.GenStreamLine(i, j);
+				tempS.GenStreamLine2(i, j, L);
 				s.push_back(tempS);
 			}
 		}
@@ -3469,12 +4175,17 @@ void generateCarve( IplImage *angleImg, float depth=0.1, float beta=0.1, float s
 	{
 		float length = 0;
 
-		for(int d=L-1; d > 0; d--)
+		double brightness = cvGetReal2D(sample2, s[p].origin.coord[1], s[p].origin.coord[0]);
+		int L = round( 1 * sqrt( (float)height*width ) * samplingRatio + 30.0 * (1 - brightness/255) );
+		cout << L << " ";
+
+		int d;
+		for(d=0; d < L-1; d++)
 		{
 			if( s[p].fwd[d].coord[0] == -1 || s[p].fwd[d].coord[1] == -1 ) break;
 			else
 			{
-				length += sqrt( pow(s[p].fwd[d].coord[0] - s[p].fwd[d-1].coord[0], 2) + pow(s[p].fwd[d].coord[1] - s[p].fwd[d-1].coord[1], 2) );
+				length += sqrt( pow(s[p].fwd[d].coord[0] - s[p].fwd[d+1].coord[0], 2) + pow(s[p].fwd[d].coord[1] - s[p].fwd[d+1].coord[1], 2) );
 			}
 		}
 		if( s[p].fwd[0].coord[0] != -1 && s[p].fwd[0].coord[1] != -1 )
@@ -3482,82 +4193,107 @@ void generateCarve( IplImage *angleImg, float depth=0.1, float beta=0.1, float s
 			length += sqrt( pow(s[p].fwd[0].coord[0] - s[p].origin.coord[0], 2) + pow(s[p].fwd[0].coord[1] - s[p].origin.coord[1], 2) );
 		}
 		
-		CvPoint p1 = cvPoint( s[p].fwd[ (int) round(length-1) ].coord[0], s[p].fwd[ (int) round(length-1) ].coord[1] );
 		float x, y;
-		float offset=0;
-		double depthSpreadRatio = depth / compress( spread*L, beta );
-		for(int d=round(length-1); d >= 0; d--)
+		double amplitude = M_PI/2;
+		Stroke str;
+		
+		if( round(length) != 0)
 		{
-			CvPoint p2 = cvPoint( s[p].fwd[d].coord[0], s[p].fwd[d].coord[1] );
-			offset += sqrt( pow( (float)p1.x - p2.x, 2) + pow((float)p1.y - p2.y, 2) ) ;
-			p1 = p2;
-
-			x = s[p].fwd[d].coord[0];
-			y = s[p].fwd[d].coord[1];
+			CvPoint p1 = cvPoint( s[p].fwd[ d ].coord[0], s[p].fwd[ d ].coord[1] );
 			
-			if( x != -1 && y != -1 && round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+			float offset=0;
+			
+			for(/*int d=round(length-1)*/; d >= 0; d--)
 			{
-				double depthRatio = depth / compress( L, beta );
-				cvSetReal2D( carve, round(y), round(x), compress( offset, beta )*depthRatio );
-
-				double spreadRatio = spread / compress( L, gamma );
-				double segment = L * compress( offset, gamma )*spreadRatio;
-				double angle = cvGetReal2D( angleImg, round(y), round(x) );		
-				if(angle == 100) break;
-
-				//double depthSpreadRatio = depth / compress( spread*length, beta );
-				
-				for(int k=round(segment); k > 0 ; k--)
-				{
-					//if( cvGetReal2D( carve, y, x) ) continue;
-					
-					x += sin( angle );
-					y += cos( angle );		
-
-					
-					if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
-					{
-						cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
-					}
-					else
-					{
-						break;
-					}
-					//cvLine( carve, p1, cvPoint( x, y ), cvScalarAll(1) );					
-				}
+				CvPoint p2 = cvPoint( s[p].fwd[d].coord[0], s[p].fwd[d].coord[1] );
+				offset += sqrt( pow( (float)p1.x - p2.x, 2) + pow((float)p1.y - p2.y, 2) ) ;
+				float extend = length-offset;
+				p1 = p2;
 
 				x = s[p].fwd[d].coord[0];
 				y = s[p].fwd[d].coord[1];
-				for(int k=round(segment); k > 0 ; k--)
-				{
-					//if( cvGetReal2D( carve, y, x) ) continue;
-					
-					x -= sin( angle );
-					y -= cos( angle );		
+				if( x == -1 || y == -1 || round(x) < 0 || round(y) < 0 || round(x) > width || round(y) > height ) break;
 
-					if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+				double angle = cvGetReal2D( angleImg, round(y), round(x) );		
+				if(angle <= M_PI)
+				{
+
+					x += sin( angle ) * amplitude * sin( weight * extend );
+					y += cos( angle ) * amplitude * sin( weight * extend );
+
+					if( x != -1 && y != -1 && round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
 					{
-						cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
-					}
-					else
-					{
-						break;
+						cvSetReal2D( r, y, x, 255 );
+						
+						double depthRatio = depth / compress( L, beta );
+						cvSetReal2D( carve, round(y), round(x), compress( offset, beta )*depthRatio );
+
+						double spreadRatio = spread / compress( length, gamma );
+						double segment = length * compress( offset, gamma )*spreadRatio;
+						double depthSpreadRatio = compress( offset, beta )*depthRatio  /  compress( spread*offset, beta );
+
+						//double depthSpreadRatio = depth / compress( spread*length, beta );
+						//cout << "o" << segment << "\t";
+						if(segment <= length   && depthSpreadRatio <=1)
+						{
+							for(int k=round(segment); k > 0 ; k--)
+							{
+								//if( cvGetReal2D( carve, y, x) ) continue;
+								
+								x += sin( angle );
+								y += cos( angle );
+								
+								if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+								{
+									cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+								}
+								else
+								{
+									break;
+								}
+								//cvLine( carve, p1, cvPoint( x, y ), cvScalarAll(1) );					
+							}
+
+							x = s[p].fwd[d].coord[0];
+							y = s[p].fwd[d].coord[1];
+
+							x += sin( angle ) * amplitude * sin( weight * extend );
+							y += cos( angle ) * amplitude * sin( weight * extend );
+
+							for(int k=round(segment); k > 0 ; k--)
+							{
+								//if( cvGetReal2D( carve, y, x) ) continue;
+								
+								x -= sin( angle );
+								y -= cos( angle );		
+
+								if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+								{
+									cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+								}
+								else
+								{
+									break;
+								}
+
+							}
+						}
+					
+					//CvPoint p2 = cvPoint( carvepathList[p][d-1][0], carvepathList[p][d-1][1] );
+					
 					}
 				}
-			
-			//CvPoint p2 = cvPoint( carvepathList[p][d-1][0], carvepathList[p][d-1][1] );
-				cvSetReal2D( r, p1.y, p1.x, 255 );
-			
+
 			}
 		}
 
 		length = 0;
-		for(int d=L-1; d > 0; d--)
+		for(d=0; d < L-1; d++)
 		{
 			if( s[p].bwd[d].coord[0] == -1 || s[p].bwd[d].coord[1] == -1 ) break;
 			else
 			{
-				length += sqrt( pow(s[p].bwd[d].coord[0] - s[p].bwd[d-1].coord[0], 2) + pow(s[p].bwd[d].coord[1] - s[p].bwd[d-1].coord[1], 2) );
+				length += sqrt( pow(s[p].bwd[d].coord[0] - s[p].bwd[d+1].coord[0], 2) + pow(s[p].bwd[d].coord[1] - s[p].bwd[d+1].coord[1], 2) );
 			}
 		}
 		if( s[p].bwd[0].coord[0] != -1 && s[p].bwd[0].coord[1] != -1 )
@@ -3565,100 +4301,142 @@ void generateCarve( IplImage *angleImg, float depth=0.1, float beta=0.1, float s
 			length += sqrt( pow(s[p].bwd[0].coord[0] - s[p].origin.coord[0], 2) + pow(s[p].bwd[0].coord[1] - s[p].origin.coord[1], 2) );
 		}
 		
-		p1 = cvPoint( s[p].bwd[ (int) round(length-1) ].coord[0], s[p].bwd[ (int) round(length-1) ].coord[1] );
-		offset=0;
-		depthSpreadRatio = depth / compress( spread*L, beta );
-		for(int d=round(length-1); d >= 0; d--)
+		if(round(length) != 0)
 		{
-			CvPoint p2 = cvPoint( s[p].bwd[d].coord[0], s[p].bwd[d].coord[1] );
-			offset += sqrt( pow( (float)p1.x - p2.x, 2) + pow((float)p1.y - p2.y, 2) ) ;
-			p1 = p2;
+			CvPoint p1 = cvPoint( s[p].bwd[ d ].coord[0], s[p].bwd[ d ].coord[1] );
+			float offset=0;
 
-			x = s[p].bwd[d].coord[0];
-			y = s[p].bwd[d].coord[1];
-			
-			if( x != -1 && y != -1 && round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+			for(/*int d=round(length-1)*/; d >= 0; d--)
 			{
-				double depthRatio = depth / compress( L, beta );
-				cvSetReal2D( carve, round(y), round(x), compress( offset, beta )*depthRatio );
-
-				double spreadRatio = spread / compress( L, gamma );
-				double segment = L * compress( offset, gamma )*spreadRatio;
-				double angle = cvGetReal2D( angleImg, round(y), round(x) );		
-				if(angle == 100) break;
-
-				//double depthSpreadRatio = depth / compress( spread*length, beta );
-				
-				for(int k=round(segment); k > 0 ; k--)
-				{
-					//if( cvGetReal2D( carve, y, x) ) continue;
-					
-					x += sin( angle );
-					y += cos( angle );		
-
-					
-					if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
-					{
-						cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
-					}
-					else
-					{
-						break;
-					}
-					//cvLine( carve, p1, cvPoint( x, y ), cvScalarAll(1) );					
-				}
+				CvPoint p2 = cvPoint( s[p].bwd[d].coord[0], s[p].bwd[d].coord[1] );
+				offset += sqrt( pow( (float)p1.x - p2.x, 2) + pow((float)p1.y - p2.y, 2) ) ;
+				float extend = length-offset;
+				p1 = p2;
 
 				x = s[p].bwd[d].coord[0];
 				y = s[p].bwd[d].coord[1];
-				for(int k=round(segment); k > 0 ; k--)
-				{
-					//if( cvGetReal2D( carve, y, x) ) continue;
-					
-					x -= sin( angle );
-					y -= cos( angle );		
+				if( x == -1 || y == -1 || round(x) < 0 || round(y) < 0 || round(x) > width || round(y) > height ) break;
 
-					if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+				double angle = cvGetReal2D( angleImg, round(y), round(x) );		
+				if(angle <= M_PI)
+				{
+
+					x -= sin( angle ) * amplitude * sin( weight * extend );
+					y -= cos( angle ) * amplitude * sin( weight * extend );
+					
+					
+					if( x != -1 && y != -1 && round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
 					{
-						cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+						cvSetReal2D( r, y, x, 255 );
+
+						double depthRatio = depth / compress( L, beta );
+						cvSetReal2D( carve, round(y), round(x), compress( offset, beta )*depthRatio );
+
+						double spreadRatio = spread / compress( length, gamma );
+						double segment = length * compress( offset, gamma )*spreadRatio;
+						double depthSpreadRatio = compress( offset, beta )*depthRatio /  compress( spread*offset, beta );
+
+						//double depthSpreadRatio = depth / compress( spread*length, beta );
+						//cout << "o" << segment << "\t";
+						if(segment <= length   && depthSpreadRatio <=1)
+						{
+							for(int k=round(segment); k > 0 ; k--)
+							{
+								//if( cvGetReal2D( carve, y, x) ) continue;
+								
+								x += sin( angle );
+								y += cos( angle );		
+
+								
+								if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+								{
+									cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+								}
+								else
+								{
+									break;
+								}
+								//cvLine( carve, p1, cvPoint( x, y ), cvScalarAll(1) );					
+							}
+
+							x = s[p].bwd[d].coord[0];
+							y = s[p].bwd[d].coord[1];
+
+							x -= sin( angle ) * amplitude * sin( weight * extend );
+							y -= cos( angle ) * amplitude * sin( weight *extend );
+
+							for(int k=round(segment); k > 0 ; k--)
+							{
+								//if( cvGetReal2D( carve, y, x) ) continue;
+								
+								x -= sin( angle );
+								y -= cos( angle );		
+
+								if( round(x) >= 0 && round(y) >= 0 && round(x) < width && round(y) < height )
+								{
+									cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );
+								}
+								else
+								{
+									break;
+								}
+
+							}
+						}
 					}
-					else
-					{
-						break;
-					}
+				
+				//CvPoint p2 = cvPoint( carvepathList[p][d-1][0], carvepathList[p][d-1][1] );
+				
 				}
-			
-			//CvPoint p2 = cvPoint( carvepathList[p][d-1][0], carvepathList[p][d-1][1] );
-				cvSetReal2D( r, p1.y, p1.x, 255 );
-			
 			}
 		}
 
-		x = s[p].origin.coord[0];
-		y = s[p].origin.coord[1];
-		double depthRatio = depth / compress( L, beta );
-		cvSetReal2D( carve, round(y), round(x), compress( length, beta )*depthRatio );
-		double segment = length * spread;
-		double angle = cvGetReal2D( angleImg, round(y), round(x) );
 		
-		for(int k=round(segment); k > 0 ; k--)
+		if(round(length) != 0)
 		{
-			x += sin( angle );
-			y += cos( angle );
-			if( round(x) < 0 || round(y) < 0 || round(x) >= width || round(y) >= height ) break;
-			cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );			
+			x = s[p].origin.coord[0];
+			y = s[p].origin.coord[1];
+			double depthRatio = depth / compress( L, beta );
+			double depthSpreadRatio = compress( length, beta )*depthRatio /  compress( spread*length, beta );
+			cvSetReal2D( r, y, x, 255 );
+#if USE_STROKE
+			str.add(x, y);
+#endif
+			cvSetReal2D( carve, round(y), round(x), compress( length, beta )*depthRatio );
+			double segment = length * spread;
+			double angle = cvGetReal2D( angleImg, round(y), round(x) );
+			//cout << "l" << segment << "\t";
+			if(angle <= M_PI  && depthSpreadRatio <=1)
+			{		
+				for(int k=round(segment); k > 0 ; k--)
+				{
+					x += sin( angle );
+					y += cos( angle );
+					if( round(x) < 0 || round(y) < 0 || round(x) >= width || round(y) >= height ) break;
+					cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );			
+				}
+
+				x = s[p].origin.coord[0];
+				y = s[p].origin.coord[1];
+
+				for(int k=round(segment); k > 0 ; k--)
+				{
+					x -= sin( angle );
+					y -= cos( angle );
+					if( round(x) < 0 || round(y) < 0 || round(x) >= width || round(y) >= height ) break;
+					cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );			
+				}
+			}
 		}
 
-		x = s[p].origin.coord[0];
-		y = s[p].origin.coord[1];
-
-		for(int k=round(segment); k > 0 ; k--)
-		{
-			x -= sin( angle );
-			y -= cos( angle );
-			if( round(x) < 0 || round(y) < 0 || round(x) >= width || round(y) >= height ) break;
-			cvSetReal2D( carve, round(y), round(x), compress( k, beta )*depthSpreadRatio );			
-		}
+		#if USE_STROKE
+			str.radius = 8;
+			str.curveType = CUBIC_BSPLINE;
+			str.z = 0;    // Z coordinate for Z-buffering
+			str.useTexture = false;  // disable texturing
+		#endif
 	}
+
 
 	double min, max;
 	cvMinMaxLoc(carve, &min, &max);
@@ -4280,6 +5058,149 @@ void DrawRelief(const vector<GLfloat> &src, GLdouble *pThreadRelief, GLdouble *p
 							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2) + j+1 ) * 3 );
 							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + j ) * 3 );
 							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2) + (j+1) ) * 3);
+							glEnd();
+						}		
+					}
+				}
+			//}
+		}
+		
+		//for(int i=0; i < height.size() / (winHeight - boundary*2) - 1; i++)
+		//{
+		//	for(int j=0; j < winHeight - boundary*2 -1; j++)
+		//	{
+		//		int position = i*(winHeight-boundary*2) + j;
+		//		if( height.at(position) >= 0 )
+		//		{
+		//			i++;
+		//			i--;
+		//		}
+		//		if( height.at(position) >= 0.5 )
+		//		{
+		//			glColor3f(1.0, 1.0, 1.0);
+		//		}
+		//		
+		//		GLdouble normal[3];
+		//		GLdouble v1[3][3] =  { {i, j, height.at(position)}, {i+1, j, height.at(position+winHeight - boundary*2)}, { i, j+1, height.at(position+1)} };
+		//		
+		//		glBegin(GL_TRIANGLES);
+		//			setNormal( v1, normal );
+		//			glNormal3dv(normal);
+		//			glVertex3d( i, j, height.at(position) );
+		//			glVertex3d( i+1, j, height.at(position+winHeight - boundary*2) );
+		//			glVertex3d( i, j+1, height.at(position+1) );
+		//			
+		//		GLdouble v2[3][3] = { {i, j+1, height.at(position+1)}, {i+1, j, height.at(position+winHeight - boundary*2)}, {i+1, j+1, height.at(position+winHeight - boundary*2 + 1)} };
+		//			setNormal( v2, normal);
+		//			glNormal3dv(normal);
+		//			glVertex3d( i, j+1, height.at(position+1)  );
+		//			glVertex3d( i+1, j, height.at(position+winHeight - boundary*2) );				
+		//			glVertex3d( i+1, j+1, height.at(position+winHeight - boundary*2 + 1) );
+		//		glEnd();
+		//		//glColor3f(1.0, 0.0, 0.0);
+		//	}
+		//}
+		//swglmDraw(MODEL);
+
+	glPushMatrix();
+		glTranslated(0, 2, 0);
+		glMultMatrixd(TRACKM);
+
+		
+	glPopMatrix();
+}
+
+void DrawRelief2(const vector<GLfloat> &src, GLdouble *pThreadRelief, GLdouble *pThreadNormal)
+{
+		glColor3f(0.6, 0.6, 0.6);
+		
+		//glTranslated(-0.2, 0, 0);
+		
+		glRotatef(reliefAngleX, 1, 0, 0);
+		glRotatef(reliefAngleY, 0, 1, 0);
+		glRotatef(reliefAngleZ, 0, 0, 1);
+		
+		glScalef(0.01*scale, 0.01*scale, 1);
+
+		glTranslated( -(winHeight/2-boundary)*2, -(winWidth/horizontalSplit/2-boundary)*2, 0.55/*sqrt( (float)(3*winHeight*winHeight - winWidth/horizontalSplit*winWidth/horizontalSplit)/4 )*/ );
+		
+		glScalef(1*0.5, 1*0.5, outputHeight);
+
+		if( winHeight || winWidth )
+		{
+			int height = (winHeight - boundary*2)*2;
+			int width = src.size() / height;
+			/*if(mesh)
+			{	*/
+				if( profile1 || profile2 )
+				{
+					reliefProfile.clear();
+					for(int i=0; i < width - 1; i++)
+					{			
+						
+						/*if( winHeight%2 == 0 )
+						{
+							reliefProfile.push_back( (src[(height-1)/2 + i*height] + src[(height+1)/2 + i*height]) / 2 );
+						}
+						else
+						{
+							reliefProfile.push_back( src[height/2 + i*height] );
+						}*/
+						reliefProfile.push_back( ( src[ floor( (height-1)/2.0 ) + i*height ] + src[ ceil( (height-1)/2.0 ) + i*height ] ) / 2 );
+						//reliefProfile.push_back( ( src[ floor( (width-1)*3/4.0 )*height + i ] + src[ ceil( (width-1)*3/4.0 )*height + i ] ) / 2 );
+
+						for(int j=0; j < height - 1; j++)
+						{
+							glBegin(GL_TRIANGLES);
+							glNormal3dv(pThreadNormal + ( ( i*(winHeight - boundary*2)*2  +  j)*2 ) *3);
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2)*2 + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2)*2 + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2)*2 + (j+1) ) * 3 );
+							glEnd();
+							
+							glBegin(GL_TRIANGLES);
+							glNormal3dv(pThreadNormal + ( ( i*(winHeight - boundary*2)*2  +  j)*2 )  *3 + 3);
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2)*2 + j+1 ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2)*2 + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2)*2 + (j+1) ) * 3);
+							glEnd();
+						}		
+					}
+
+					char *name;
+					static int id;
+					IplImage *profileImg = cvCreateImage( cvSize( width, height ), IPL_DEPTH_8U, 1);
+					cvSet( profileImg, cvScalar(208) );
+					DrawProfile(reliefProfile, profileImg, 0.9);
+					int c = _snprintf( NULL, 0, "Relief Profile %d", id+1 );
+					name = new char[ c + 1 ];
+					_snprintf(name, c+1, "Relief Profile %d", id+1);
+					id++;
+					cvNamedWindow(name, 1);
+					cvShowImage(name, profileImg);
+
+					profile1 = false;
+					profile2 = false;
+				}
+				
+				else
+				{
+					for(int i=0; i < width - 1; i++)
+					{			
+						for(int j=0; j < height - 1; j++)
+						{
+							glBegin(GL_TRIANGLES);
+							glNormal3dv( pThreadNormal + ( ( i*(winHeight - boundary*2)*2  +  j)*2 ) *3);
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2)*2 + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2)*2 + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2)*2 + (j+1) ) * 3 );
+							glEnd();
+							
+							glBegin(GL_TRIANGLES);
+							glNormal3dv( pThreadNormal + ( ( i*(winHeight - boundary*2)*2  +  j)*2 )  *3 + 3);
+							glVertex3dv( pThreadRelief + ( i*(winHeight - boundary*2)*2 + j+1 ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2)*2 + j ) * 3 );
+							glVertex3dv( pThreadRelief + ( (i+1)*(winHeight - boundary*2)*2 + (j+1) ) * 3);
 							glEnd();
 						}		
 					}
@@ -6280,7 +7201,7 @@ void displayline(void)
 //3D Scene
 void openglPath(void)
 {
-    string infix = /*"Buddhist Temple"*/"River Terrain2"/*"valleyRiver"*//*"ramp2"*/;
+    string infix = /*"Buddhist Temple"*/"River Terrain2"/*"valleyRiver"*//*"ramp2"*//*"vase-lion"*//*"temple"*//*"golf"*//*"armadillo"*//*"asain dragon"*/;
 	string whole = "img/" + infix + "/" + infix + "S.bmp";
 	segmentImg = cvLoadImage(whole.c_str(),0);
 	whole = "img/" + infix + "/" + infix + "C.bmp";
@@ -7409,7 +8330,24 @@ void windowShowImage(char *name, IplImage *image)
 	cvShowImage(name, show);
 }
 
+GLenum checkForError(char *loc)
+{
+  GLenum errCode;
+  const GLubyte *errString;
 
+  if ((errCode = glGetError()) != GL_NO_ERROR)
+    {
+      errString = gluErrorString(errCode);
+      printf("OpenGL error: %s",errString);
+
+      if (loc != NULL)
+	printf("(%s)",loc);
+
+      printf("\n");
+    }
+
+  return errCode;
+}
 
 void display(void)
 {
@@ -7731,6 +8669,9 @@ void display(void)
 				
 				/*****	Canny Edge	*****/
 
+				IplImage *featureLaplace2 = cvCreateImage( cvSize(featureLaplace->width*2, featureLaplace->height*2), IPL_DEPTH_8U, 1);
+				cvPyrUp(featureLaplace, featureLaplace2);
+
 				/***** Morphology Opening *****/
 				int nSize=3;
 				IplConvKernel* circularElem = cvCreateStructuringElementEx(	nSize, // columns
@@ -7751,7 +8692,6 @@ void display(void)
 				/***** Morphology Opening *****/
 
 				
-
 				
 
 				/***** Distance Field *****/
@@ -7848,6 +8788,96 @@ void display(void)
 				cvSmooth(ImageDFPrime, ImageDFPrime, CV_GAUSSIAN, 5);
 				cvNamedWindow("Distance Field without Opening", 1);
 				cvShowImage("Distance Field without Opening", ImageDFPrime);*/
+
+#if CARVEMODEL_UPSAMPLE
+				IplImage *DF2 = cvCreateImage( cvGetSize(featureLaplace2), IPL_DEPTH_32F, 1 );
+				IplImage *ImageDF2 =  cvCreateImage( cvGetSize(featureLaplace2),  IPL_DEPTH_8U, 1 );
+				cvDistTransform(featureLaplace2, DF2);
+
+				cvMinMaxLoc(DF2, &featureMin, &featureMax);
+				scale = 255.0 / (featureMax - featureMin);   
+				shift = -featureMin * scale;  
+				cvConvertScaleAbs(DF2, ImageDF2, scale, shift);
+				
+				IplImage *GradientDFX2 = cvCreateImage( cvGetSize(ImageDF2), IPL_DEPTH_16S, 1);
+				IplImage *GradientDFY2 = cvCreateImage( cvGetSize(ImageDF2), IPL_DEPTH_16S, 1);
+				
+				/*cvSobel(ImageDF2, GradientDFX2, 1, 0);
+				cvSobel(ImageDF2, GradientDFY2, 0, 1);*/
+				upSample(GradientDFX, GradientDFX2);
+				upSample(GradientDFY, GradientDFY2);
+				
+
+				vectorfield2 = new VectorField(ImageDF2->width, ImageDF2->height);
+				for(int i=0; i<ImageDF2->width; i++)
+				{
+					for(int j=0; j<ImageDF2->height; j++)
+					{						
+						double y = cvGetReal2D(GradientDFY2, j, i);
+						double x = cvGetReal2D(GradientDFX2, j, i);
+						/*double a = atan2(y, x) + M_PI/2;
+						if( a > M_PI )
+						{
+							a = -M_PI + ( a - M_PI );
+						}
+						if( a < -M_PI )
+						{
+							a = M_PI - ( -M_PI - a );
+						}
+
+						if( cvGetReal2D(featureLaplace2, j, i) )
+						{
+							cvSetReal2D( GradientDFA2, j, i, a);
+						}
+						else
+						{
+							cvSetReal2D( GradientDFA2, j, i, 100 );
+						}*/
+
+						
+						if( cvGetReal2D(featureLaplace2, j, i) )
+						{
+							vectorfield2->_data[i+j*ImageDF2->width].dx = y;
+							vectorfield2->_data[i+j*ImageDF2->width].dy = -x;
+						}
+						else
+						{
+							vectorfield2->_data[i+j*ImageDF2->width].dx = 0;
+							vectorfield2->_data[i+j*ImageDF2->width].dy = 0;
+						}
+
+					}
+				}
+
+				IplImage *Gray2 = cvCreateImage( cvGetSize(featureLaplace2), IPL_DEPTH_8U, 1 );
+				cvConvertScaleAbs(ImageDF2, Gray2, 3, 0);
+				/*cvSet( Gray, cvScalar(255) );
+				cvSub( Gray, ImageDF, Gray );*/
+
+				cvNamedWindow("Distance Field without Smooth2", 1);
+				cvShowImage("Distance Field without Smooth2", Gray2);
+#endif
+				/***** Offset Lane without Smooth*****/
+				ImageL =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+				ImageLPrime =  cvCreateImage( cvGetSize(ImageDF),  IPL_DEPTH_8U, 1 );
+
+				///*extractLine(ImageDFPrime, ImageLPrime, interval, linewidth);
+				//cvNamedWindow("Offset Lane without Opening", 1);
+				//cvShowImage("Offset Lane without Opening", ImageLPrime);*/
+
+				//extractLine(ImageDF, ImageL, interval, linewidth);
+				//cvNamedWindow("Offset Lane without Smooth", 1);
+				//cvShowImage("Offset Lane without Smooth", ImageL);
+				/***** Offset Lane without Smooth*****/
+
+				cvSmooth(ImageDF, ImageDF, CV_GAUSSIAN, 5);
+				cvSmooth(Gray, Gray, CV_GAUSSIAN, 5);
+
+				cvNamedWindow("Distance Field", 1);
+				cvShowImage("Distance Field", ImageDF);
+				
+				cvNamedWindow("Distance Field with Smooth", 1);
+				cvShowImage("Distance Field with Smooth", Gray);
 				/***** Distance Field *****/
 
 				/***** Offset Lane *****/
@@ -7886,6 +8916,8 @@ void display(void)
 				//cvConvertScaleAbs(skewness, feature, scale, shift);
 				/*****	Skewness	*****/
 
+				/*****	Poisson Disk Sampling	*****/
+
 				for(int i=0; i < segmentImg->width; i++)
 				{
 					for(int j=0; j < segmentImg->height; j++)
@@ -7897,6 +8929,9 @@ void display(void)
 					}
 				}
 
+				vector<unsigned int> importance;
+				Image2Relief(segmentImg, importance);
+
 				map<int, int> segmentMap;
 				map<int,int>::iterator segmentIt;
 				featureMin=0, featureMax=192;
@@ -7905,6 +8940,8 @@ void display(void)
 				{
 					for(int j=0; j < segmentImg->height; j++)
 					{
+						if( cvGetReal2D( edgeImg, j, i) ) break;
+						
 						int segment = cvGetReal2D( segmentImg, j, i);
 						if( segment <= 240 )
 						{
@@ -7941,6 +8978,7 @@ void display(void)
 									feature = featureMin + ratio*(featureMax - featureMin);
 								}
 
+								
 								cvSetReal2D( segmentImg, j, i, feature );
 								segmentMap.insert( pair<int,int>( segment, feature) );
 							}					
@@ -7957,9 +8995,8 @@ void display(void)
 				cvNamedWindow("Segment Feature", 1);
 				cvShowImage("Segment Feature", segmentImg);
 
-				/*****	Poisson Disk Sampling	*****/
-
-				vector<unsigned int> importance;
+				
+				/*vector<unsigned int> importance;*/
 				Image2Relief(segmentImg, importance);
 
 				/*IplImage *Image1 = cvLoadImage("gradation.bmp",0);
@@ -8010,10 +9047,70 @@ void display(void)
 				//cvMorphologyEx( featureThreshold, featureOPEN, 0, circularElem, CV_MOP_OPEN, 1 );
 				//cvNamedWindow("OPEN last", 1);
 				//cvShowImage("OPEN last", featureOPEN);	
-
 				cvCopy( PDSample, sample );
 				cvNamedWindow("Poisson Disk Sampling", 1);
 				cvShowImage("Poisson Disk Sampling", PDSample);
+
+#if CARVEMODEL_UPSAMPLE
+				IplImage *segmentImg2 = cvCreateImage( cvGetSize(featureLaplace2),  IPL_DEPTH_8U, 1);
+				cvPyrUp( segmentImg, segmentImg2 );
+
+				vector<unsigned int> importance2;
+				Image2Relief(segmentImg2, importance2);
+
+				/*IplImage *Image1 = cvLoadImage("gradation.bmp",0);
+				Image2Relief(Image1, importance);*/
+				PDSampler *sampler2 = new PenroseSamplerW(samplingRatio, featureLaplace2->width, featureLaplace2->height, importance2);
+				sampler2->complete();
+
+				
+				IplImage *PDSample2 =  cvCreateImage( cvGetSize(featureLaplace2),  IPL_DEPTH_8U, 1);
+				cvSet(PDSample2, cvScalar(0));
+				int N2 = (int) sampler2->points.size();
+				for (int i=0; i<N2; i++) {
+					//cvCircle(PDSample, cvPoint( (1+sampler->points[i].y)*img0->width, (-sampler->points[i].x)*img0->height ), 0, cvScalarAll(0), -1);
+					int x =	(1+sampler2->points[i].y)*featureLaplace2->width;
+					int y = (-sampler2->points[i].x)*featureLaplace2->height;
+					
+					double brightness = 255 - cvGetReal2D(segmentImg2, y, x);
+					cvSetReal2D(PDSample2, y, x, brightness);
+				}
+
+				
+				//IplImage *featureOPEN =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_8U, 1);
+				//IplImage *featureThreshold =  cvCreateImage( cvGetSize(feature),  IPL_DEPTH_8U, 1);
+				//int nSize=3;
+				//IplConvKernel* circularElem = cvCreateStructuringElementEx(	nSize, // columns
+				//																										nSize, // rows
+				//																										floor(nSize/2.0), // anchor_x
+				//																										floor(nSize/2.0), // anchor_y
+				//																										CV_SHAPE_ELLIPSE, // shape
+				//																										NULL);
+
+				//cvMorphologyEx( feature, featureOPEN, 0, circularElem, CV_MOP_OPEN, 1 );
+				//cvNamedWindow("OPEN first", 1);
+				//cvShowImage("OPEN first", featureOPEN);
+				//cvThreshold( featureOPEN, featureThreshold, 5, 255, CV_THRESH_BINARY);			
+				//cvNamedWindow("Threshold last", 1);
+				//cvShowImage("Threshold last", featureThreshold);
+
+				//cvThreshold(feature, featureThreshold, 5, 255, CV_THRESH_BINARY);			
+				//cvNamedWindow("Threshold first", 1);
+				//cvShowImage("Threshold first", featureThreshold);
+
+				//cvErode(featureThreshold, feature, circularElem, 5);
+				////cvDilate(feature, feature, circularElem, 1);		
+				//cvNamedWindow("FeatureDilateErode", 1);
+				//cvShowImage("FeatureDilateErode", feature);
+
+				//cvMorphologyEx( featureThreshold, featureOPEN, 0, circularElem, CV_MOP_OPEN, 1 );
+				//cvNamedWindow("OPEN last", 1);
+				//cvShowImage("OPEN last", featureOPEN);	
+				sample2 =  cvCreateImage( cvGetSize(featureLaplace2),  IPL_DEPTH_8U, 1);
+				cvCopy( PDSample2, sample2 );
+				cvNamedWindow("Poisson Disk Sampling 2", 1);
+				cvShowImage("Poisson Disk Sampling 2", PDSample2);
+#endif
 				/*****	Poisson Disk Sampling	*****/
 
 				
@@ -8024,19 +9121,19 @@ void display(void)
 				copy( heightPyr[0].begin(), heightPyr[0].end(), compressedH.begin() );
 				
 				//histogramBase(heightPyr[0], gradientX, gradientY);
-
+				
 				/*****	Carving Path	*****/
-				IplImage *img32f = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
-				IplImage *img8u = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
-				Relief2Image( compressedH, img32f, winHeight - boundary*2 );
+				IplImage *img32f = cvCreateImage( cvSize(img0->width, img0->height), IPL_DEPTH_32F, 1);
+				IplImage *img8u = cvCreateImage( cvGetSize(img32f), IPL_DEPTH_8U, 1);
+				Relief2Image( compressedH, img32f, (winHeight - boundary*2) );
 				cvConvertScaleAbs( img32f, img8u, 255);
-				IplImage *GradientX = cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
-				IplImage *X = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
+				IplImage *GradientX = cvCreateImage( cvGetSize(img32f), IPL_DEPTH_16S, 1);
+				IplImage *X = cvCreateImage( cvGetSize(img32f), IPL_DEPTH_8U, 1);
 				
-				IplImage *GradientY = cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
-				IplImage *Y = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
+				IplImage *GradientY = cvCreateImage( cvGetSize(img32f), IPL_DEPTH_16S, 1);
+				IplImage *Y = cvCreateImage( cvGetSize(img32f), IPL_DEPTH_8U, 1);
 				
-				GradientA = cvCreateImage( cvGetSize(img0), IPL_DEPTH_16S, 1);
+				GradientA = cvCreateImage( cvGetSize(img32f), IPL_DEPTH_16S, 1);
 
 				cvSobel( img8u, GradientX, 1, 0);
 				cvSobel( img8u, GradientY, 0, 1);
@@ -8054,11 +9151,12 @@ void display(void)
 				cvNamedWindow("GradientY", 1);
 				cvShowImage("GradientY", Y);
 
+				
 				for(int i=0; i<GradientA->width; i++)
 				{
 					for(int j=0; j<GradientA->height; j++)
 					{
-						if( cvGetReal2D(featureLaplace, j, i) )
+						if( cvGetReal2D(featureLaplace2, j, i) )
 						{
 							double y = cvGetReal2D(GradientY, j, i);
 							double x = cvGetReal2D(GradientX, j, i);
@@ -8071,7 +9169,7 @@ void display(void)
 					}
 				}
 		
-				IplImage *A = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
+				IplImage *A = cvCreateImage( cvGetSize(featureLaplace), IPL_DEPTH_8U, 1);
 				cvMinMaxLoc(GradientDFA, &min, &max);
 				scale = 128.0 / (max - min);   
 				shift = -min * scale;  
@@ -8094,12 +9192,19 @@ void display(void)
 				
 
 				
+				/*****	Carving Path	*****/
+				
+#if CARVEMODEL_UPSAMPLE
+				IplImage *GradientDFA2 = cvCreateImage( cvGetSize(ImageDF2), IPL_DEPTH_16S, 1);
+				upSample(GradientDFA, GradientDFA2);
+				generateCarve( GradientDFA2);
+		
+				upSample( heightPyr[0], compressedH );
+#else
 				generateCarve( GradientDFA);
 				//generateCarve( GradientDFA, 0.25 );
-				
-				
-				
-				/*****	Carving Path	*****/
+#endif
+
 				int height = carve->height;
 				int width = carve->width;
 				for(int i=0; i < width; i++)
@@ -8111,8 +9216,28 @@ void display(void)
 						compressedH[ i*height + j ] -= carveDepth;
 					}
 				}
+
+				IplImage *compressedHeight = cvCreateImage( cvGetSize(carve), IPL_DEPTH_32F, 1);
+				Relief2Image(compressedH, compressedHeight);
 				
+				heightImg = cvCreateImage( cvGetSize(carve), IPL_DEPTH_8U, 1);
+				cvConvertScale( compressedHeight, heightImg, 255, 0);
+				string infix = /*"Buddhist Temple"*/"River Terrain2"/*"valleyRiver"*//*"ramp2"*//*"vase-lion"*//*"temple"*//*"golf"*//*"armadillo"*//*"asain dragon"*/;
+				string whole = "img/" + infix + "CH.bmp";
+				cvSaveImage(whole.c_str(), heightImg);
+				
+				/*free(pThreadRelief);
+				free(pThreadNormal);
+				int vertCount2 = vertCount*4;
+				pThreadRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount2 *3);
+				pThreadNormal = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount2 *3 *2);*/
+
+#if CARVEMODEL_UPSAMPLE
+				BuildRelief2(compressedH, pThreadRelief, pThreadNormal);
+#else
 				BuildRelief(compressedH, pThreadRelief, pThreadNormal);
+#endif
+				
 			
 				relief1 = false;
 				mesh1 = true;
@@ -8145,7 +9270,10 @@ void display(void)
 				map1 = false;
 			}
 			
+#if !CARVEMODEL_UPSAMPLE
 			DrawRelief(compressedH, pThreadRelief, pThreadNormal);
+#endif
+			//DrawRelief2(compressedH, pThreadRelief, pThreadNormal);
 
 			if(time1)
 			{
@@ -8160,7 +9288,182 @@ void display(void)
 	/*****     Partition 2     *****/
 
 	/*****     Partition 3     *****/
+#if USE_STROKE
+	glPushMatrix();
+			partitionStroke();
+			
+
+			/*glBegin(GL_TRIANGLES);
+				//glScalef(5000.f, 5000.f, 1.f);
+				glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+				glColor3ub(0, 255, 0);
+				GLfloat points[][3] = {
+					{0.0,0.0,0.0},{50.0,0.0,0.0},{0.0,50.0,0.0}, 
+				};
+				glVertex3fv(points[0]);
+				glVertex3fv(points[1]);
+				glVertex3fv(points[2]);
+			glEnd();*/
+
+			if (opaque)
+			  glColor3ub(255, 0, 0);
+			else
+			  glColor4ub(0, 64, 16, 128);
+
+			//glScalef(1.5f, 1.5f, 1);
+
+			if (relief2)
+			{
+				CvSize size = cvGetSize(img0);
+				int width = size.width;
+				int height = size.height;
+				IplImage *storkeImg = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 3);
+				IplImage *r = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+				IplImage *g = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+				IplImage *b = cvCreateImage( cvSize(width, height), IPL_DEPTH_8U, 1);
+				cvSetZero( storkeImg );
+				cvSetZero( r );
+				cvSetZero( g );
+				cvSetZero( b );
+
+				CvPoint PointArray[3];
+				CvScalar colorRed = CV_RGB(255,0,0);
+				CvScalar full = cvScalar(255);
+
+				int counter = 0;
+				for(std::list<Stroke>::iterator iter = strList.begin(); iter != strList.end(); ++iter)
+				{
+					iter->render(width, height);
+									
+					std::vector<StrokePoint> points = iter->points;
+					int pointAmount = points.size();
+
+					if (pointAmount >= 3)
+					{
+						const int triangleAmount = pointAmount - 2;
+						CvPoint* PointArray = new CvPoint[pointAmount];
+						for(int i=0; i < pointAmount  ; ++i)
+						{
+							PointArray[i] = cvPoint( round(points[i].x), round(points[i].y));
+							//cvCircle(storkeImg, PointArray[i], 0, colorRed, 1, 8, 0 );
+							cvSetReal2D(r, round(points[i].y), round(points[i].x), 255);						
+						}
+
+						CvPoint** PointArray0 = new CvPoint*[triangleAmount];
+						int* VertexNumber= new int [triangleAmount];
+						for(int i=0; i < triangleAmount ; ++i)
+						{
+							/*cvLine(storkeImg, PointArray[i], PointArray[i+1], colorRed, 1, 8, 0 );
+							cvLine(storkeImg, PointArray[i+1], PointArray[i+2], colorRed, 1, 8, 0 );
+							cvLine(storkeImg, PointArray[i+2], PointArray[i], colorRed, 1, 8, 0 );*/
+							PointArray0[i] = &PointArray[i];
+							VertexNumber[i] = 3;
+						}
+
+						cvFillPoly(storkeImg, PointArray0, VertexNumber, 1, colorRed, CV_AA, 0);
+						//cvFillPoly(r, PointArray0, VertexNumber, 1, full, CV_AA, 0);
+						
+						delete [] PointArray;
+						delete [] PointArray0;
+						delete [] VertexNumber;
+
+					}
+					else if (pointAmount == 2)
+					{
+						CvPoint pt1 = cvPoint(points[0].x, points[0].y);
+						CvPoint pt2 = cvPoint(points[1].x, points[1].y);
+						cvLine(storkeImg, pt1, pt2, colorRed, 1, CV_AA, 0 );
+					}
+					else if (pointAmount == 1)
+					{
+						CvPoint pt = cvPoint(points[0].x, points[0].y);
+						//cvCircle(storkeImg, pt, 0, colorRed, 1, CV_AA, 0 );
+						cvSetReal2D(r, round(points[0].y), round(points[0].x), 255);
+					}
+
+					/*for(int i=0; i < points.size() - 2; ++i)
+					{
+						cvSetReal2D( r, points[i].y, points[i].x, 255 );
+					}*/
+				
+
+					points = iter->fanPoints;
+					pointAmount = points.size();
+
+					if (pointAmount >= 3)
+					{
+						const int triangleAmount = pointAmount - 2;
+						CvPoint* PointArray = new CvPoint[triangleAmount*3];
+						for(int i=1; i < pointAmount -1 ; ++i)
+						{
+							PointArray[(i-1)*3] = cvPoint( round(points[0].x), round(points[0].y));
+							PointArray[(i-1)*3+1] = cvPoint( round(points[i].x), round(points[i].y));
+							PointArray[(i-1)*3+2] = cvPoint( round(points[i+1].x), round(points[i+1].y));
+							//cvCircle(storkeImg, PointArray[i], 0, colorRed, 1, 8, 0 );
+							cvSetReal2D(r, round(points[i].y), round(points[i].x), 255);						
+						}
+
+						CvPoint** PointArray0 = new CvPoint*[triangleAmount];
+						int* VertexNumber= new int [triangleAmount];
+						for(int i=0; i < triangleAmount ; ++i)
+						{
+							PointArray0[i] = &PointArray[i*3];
+							VertexNumber[i] = 3;
+						}
+
+						cvFillPoly(storkeImg, PointArray0, VertexNumber, 1, colorRed, CV_AA, 0);
+						
+						delete [] PointArray;
+						delete [] PointArray0;
+						delete [] VertexNumber;
+					}
+					else if (pointAmount == 2)
+					{
+						CvPoint pt1 = cvPoint(points[0].x, points[0].y);
+						CvPoint pt2 = cvPoint(points[1].x, points[1].y);
+						cvLine(storkeImg, pt1, pt2, colorRed, 1, CV_AA, 0 );
+					}
+					else if (pointAmount == 1)
+					{
+						CvPoint pt = cvPoint(points[0].x, points[0].y);
+						//cvCircle(storkeImg, pt, 0, colorRed, 1, CV_AA, 0 );
+						cvSetReal2D(r, round(points[0].y), round(points[0].x), 255);
+					}
+
+					++counter;
+				}
+				/*CvPoint PointArray1[3];
+				PointArray1[0]=cvPoint(256,256);
+				PointArray1[1]=cvPoint(256,257);
+				PointArray1[2]=cvPoint(258,256);
+
+				CvPoint *PointArray2[1]= {&PointArray1[0]};
+
+				CvScalar Color=CV_RGB(0,255,0);
+				int PolyVertexNumber[1]={3};
+				cvFillPoly(storkeImg, PointArray2, PolyVertexNumber, 1, Color, CV_AA, 0);*/
+				cvMerge(b, g, r, 0, storkeImg);
+				cvNamedWindow("Stroke", 1);
+				cvShowImage("Stroke", storkeImg);
+
+				if (controlPolygon)
+				  {
+					  glColor3ub(255,0,0);
+					  for(std::list<Stroke>::iterator iter = strList.begin(); iter != strList.end(); ++iter)
+					  {
+						  //iter->drawControl();
+					  }
+				  }
+			    
+				checkForError("swap");
+
+				relief2 = false;
+			}
+
+	glPopMatrix();
+#else
 	partition3();
+
 
 	glPushMatrix();
 		glMultMatrixd(TRACKM);
@@ -8590,6 +9893,7 @@ void display(void)
 		}
 
 	glPopMatrix();
+#endif
 	/*****     Partition 3     *****/
 	
 	
@@ -8932,15 +10236,16 @@ int main(int argc, char **argv)
 	Window0 = glutCreateWindow("Oringinal Scene");*/
 
     glutInitWindowSize(windowHeight*horizontalSplit, windowHeight);
-	glutInitWindowPosition(0, 505);
+	glutInitWindowPosition(0, 205);
     Window = glutCreateWindow("Digital Bas-Relief from 3D Scenes");
 
-
+#if !CARVEMODEL_UPSAMPLE
 	vertCount = ( windowHeight - boundary*2 ) * ( windowHeight - boundary*2 );
 	pThreadRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3);
 	pThreadNormal = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3 *2);
 	pThreadEqualizeRelief = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3);
 	pThreadEqualizeNormal = (GLdouble*) malloc ( sizeof(GLdouble) * vertCount *3 *2);
+#endif
 
 	GLfloat  ambientLight0[] = { 0.1f, 0.1f, 0.1f, 1.0f };
     GLfloat  diffuseLight0[] = { 0.7f, 0.7f, 0.7f, 1.0f };
@@ -9093,3 +10398,4 @@ int main(int argc, char **argv)
 
 	cvWaitKey(0);
 }
+

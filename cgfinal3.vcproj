@@ -245,6 +245,18 @@
 					/>
 				</FileConfiguration>
 			</File>
+			<Filter
+				Name="Stroke"
+				>
+				<File
+					RelativePath=".\stroke\polyfill.cpp"
+					>
+				</File>
+				<File
+					RelativePath=".\stroke\Stroke.cpp"
+					>
+				</File>
+			</Filter>
 		</Filter>
 		<Filter
 			Name="Header Files"
@@ -307,6 +319,22 @@
 				RelativePath=".\WeightedDiscretePDF.h"
 				>
 			</File>
+			<Filter
+				Name="Stroke"
+				>
+				<File
+					RelativePath=".\stroke\Point.h"
+					>
+				</File>
+				<File
+					RelativePath=".\stroke\polyfill.h"
+					>
+				</File>
+				<File
+					RelativePath=".\stroke\Stroke.h"
+					>
+				</File>
+			</Filter>
 		</Filter>
 		<Filter
 			Name="Resource Files"

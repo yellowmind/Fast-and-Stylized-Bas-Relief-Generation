@@ -43,7 +43,7 @@ using namespace cv;
 #endif
 
 #define HistogramBins  10000
-#define ahe_m 128
+#define ahe_m 32
 int interval = 22,linewidth = 3;
 #define SIDE 29
 typedef pair<int, float> P;
@@ -144,8 +144,8 @@ GLint vertCount = 1;
 
 int DRAWTYPE = 1;// 0:hw1, 1:hw2, 2:Gouraud shading, 3: Phong Shading
 //int ReliefType = 1;// 0:no processing, 1:bilateral filtering,
-//int method = 0, reference = 2;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
-int method = 3, reference = 0;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
+int method = 3, reference = 2;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
+//int method = 3, reference = 0;//; ref1: gradient correction, ref2: original histogram, ref3: base histogram
 int numNonZero;
 float lookat[9] = {0, 0, 4, 0, 0, 0, 0, 1, 0};
 float perspective[4] = {60, 1, 0.1, 10};
@@ -5002,7 +5002,7 @@ void histogramBase(const vector<GLfloat> &src, IplImage *weightX, IplImage *weig
 				compressedH[i] = 0;
 			}
 
-			int n=1;
+			int n=4;
 			//#pragma omp parallel for private(AHEHeight)
 			/*for(int k=1; k <= n; k++)
 			{
@@ -5125,7 +5125,7 @@ void histogramBase(const vector<GLfloat> &src, IplImage *weightX, IplImage *weig
 				compressedH[i] /= range/*/= HistogramBins*/;
 			}
 
-			for(int i=0; i < width; i++)
+			/*for(int i=0; i < width; i++)
 			{
 				for(int j=0; j < height; j++)
 				{
@@ -5133,7 +5133,7 @@ void histogramBase(const vector<GLfloat> &src, IplImage *weightX, IplImage *weig
 					
 					compressedH[ i*height + j ] -= carveDepth;
 				}
-			}
+			}*/
 
 			//generateCarvePath(compressedH);
 
@@ -5312,7 +5312,7 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 				referenceHeight[i] = 0;
 			}
 
-			const int n=5;
+			const int n=4;
 			//#pragma omp parallel for private(AHEHeight)
 			/*for(int k=1; k <= n; k++)
 			{
@@ -5398,7 +5398,7 @@ void reliefHistogram(const vector<GLfloat> &src, IplImage *weightX, IplImage *we
 			}
 			else
 			{
-				float w[n] = { 1/2, 1, 1, /**/1/**/, 1};
+				float w[n] = { 1, 1, /**/1/**/, 1};
 					
 				for(int k=1; k <= n; k++)
 				{
@@ -7280,7 +7280,7 @@ void display(void)
 				
 				cvNamedWindow("Color Map", 1);
 				cvShowImage("Color Map", colorImg);
-				string infix = /*"Buddhist Temple"*/"River Terrain2"/*"valleyRiver"*//*"ramp2"*/;
+				string infix = /*"Buddhist Temple"*//*"River Terrain2"*//*"valleyRiver"*//*"ramp2"*//*"vase-lion"*//*"temple"*//*"golf"*//*"armadillo"*/"asain dragon";
 				string whole = "img/" + infix + "C.bmp";
 				cvSaveImage(whole.c_str(), colorImg);
 				cvNamedWindow("Depth Map", 1);
@@ -7705,7 +7705,7 @@ void display(void)
 				/*****	Carving Path	*****/
 
 				start_time1 = clock();
- 				histogramBase(heightPyr[0], gradientX, gradientY, /*0*/pyrLevel-1, 0 );
+ 				histogramBase(heightPyr[0], gradientX, gradientY, 0/*pyrLevel-1*/, 0 );
 				//histogramBase(heightPyr[0], gradientX, gradientY);
 				
 				vector< pair<int, int> > pathMask;
@@ -7726,7 +7726,7 @@ void display(void)
 			{
 				IplImage *heightMap = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 1);
 				IplImage *heightImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_32F, 1);
-				Relief2Image(heightPyr[0], heightImg, winHeight - boundary*2);
+				Relief2Image(compressedH, heightImg, winHeight - boundary*2);
 				cvConvertScaleAbs(heightImg, heightMap, 255, 0);
 
 				cvNamedWindow("Height Map1", 1);
@@ -7758,7 +7758,7 @@ void display(void)
 				heightImg = cvCreateImage( cvGetSize(img0), IPL_DEPTH_8U, 3);
 				cvMerge(heightImg1, heightImg2, heightImg3, 0, heightImg);
 
-				string infix = /*"Buddhist Temple"*/"River Terrain2"/*"valleyRiver"*//*"ramp2"*/;
+				string infix = /*"Buddhist Temple"*//*"River Terrain2"*//*"valleyRiver"*//*"ramp2"*//*"vase-lion"*//*"temple"*//*"golf"*//*"armadillo"*/"asain dragon";
 				string whole = "img/" + infix + "H.bmp";
 				cvSaveImage(whole.c_str(), heightImg);
 
@@ -8595,7 +8595,7 @@ int main(int argc, char **argv)
 
 
 	//Read model
-	MODEL = glmReadOBJ("model/Scene/River Terrain2.obj/River Terrain2.obj");
+	MODEL = glmReadOBJ("model/temple.obj");
 	glmUnitize(MODEL);
 	//glmFacetNormals(MODEL);
 	//glmVertexNormals(MODEL, 90);
